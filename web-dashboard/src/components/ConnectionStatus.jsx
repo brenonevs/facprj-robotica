@@ -1,21 +1,52 @@
-import { Power } from "lucide-react";
+import { LoaderCircle, Plug, Power, WifiOff } from "lucide-react";
 
-export function ConnectionStatus({ icon: Icon, label, isConnected, onDisconnect }) {
+const statusConfig = {
+  disconnected: {
+    icon: WifiOff,
+    tone: "danger",
+  },
+  connecting: {
+    icon: LoaderCircle,
+    tone: "warning",
+  },
+  connected: {
+    icon: Plug,
+    tone: "success",
+  },
+};
+
+export function ConnectionStatus({ label, status, isConnected, onDisconnect }) {
+  const config = statusConfig[status] ?? statusConfig.disconnected;
+  const Icon = config.icon;
+
   return (
-    <section className="status-panel">
-      <div className="status-copy">
-        <div className={isConnected ? "status-icon connected" : "status-icon"}>
-          <Icon size={22} />
+    <section className={`card card-status card-status--${config.tone}`}>
+      <div className="card-header card-header--spread">
+        <div className="card-header">
+          <div className={`status-badge status-badge--${config.tone}`}>
+            <Icon size={22} className={status === "connecting" ? "spin" : undefined} />
+          </div>
+          <div>
+            <span className="card-kicker">Status</span>
+            <h2 className={`status-label status-label--${config.tone}`}>{label}</h2>
+          </div>
         </div>
-        <div>
-          <span className="section-kicker">Status</span>
-          <strong className={isConnected ? "connected-text" : "disconnected-text"}>{label}</strong>
-        </div>
+        <span className={`status-pill status-pill--${config.tone}`}>
+          {isConnected ? "Online" : status === "connecting" ? "Aguardando" : "Offline"}
+        </span>
       </div>
-      <button type="button" onClick={onDisconnect} disabled={!isConnected}>
-        <Power size={18} />
-        Desconectar
-      </button>
+
+      <div className="card-body">
+        <button
+          className="btn btn-danger btn-full"
+          type="button"
+          onClick={onDisconnect}
+          disabled={!isConnected}
+        >
+          <Power size={18} />
+          Desconectar
+        </button>
+      </div>
     </section>
   );
 }

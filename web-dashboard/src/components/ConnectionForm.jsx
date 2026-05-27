@@ -1,29 +1,45 @@
-import { Link, LoaderCircle } from "lucide-react";
+import { Link, LoaderCircle, Wifi } from "lucide-react";
 
 export function ConnectionForm({ ip, onIpChange, onConnect, isConnecting }) {
   return (
     <form
-      className="connection-card"
+      className="card card-connection"
       onSubmit={(event) => {
         event.preventDefault();
         onConnect();
       }}
     >
-      <label htmlFor="raspberry-ip">IP do Raspberry Pi</label>
-      <div className="connection-row">
-        <input
-          id="raspberry-ip"
-          value={ip}
-          onChange={(event) => onIpChange(event.target.value)}
-          placeholder="Ex: 192.168.0.42"
-          autoComplete="off"
-        />
-        <button type="submit" disabled={isConnecting}>
-          {isConnecting ? <LoaderCircle className="spin" size={18} /> : <Link size={18} />}
-          {isConnecting ? "Conectando" : "Conectar"}
-        </button>
+      <div className="card-header">
+        <div className="card-header-icon card-header-icon--accent">
+          <Wifi size={18} />
+        </div>
+        <div>
+          <span className="card-kicker">Rede</span>
+          <h2>Conexão</h2>
+        </div>
       </div>
-      <p>O servidor precisa estar rodando no Raspberry antes da conexão.</p>
+
+      <div className="card-body">
+        <label className="field-label" htmlFor="raspberry-ip">
+          Endereço IP do Raspberry Pi
+        </label>
+        <div className="field-row">
+          <input
+            id="raspberry-ip"
+            className="field-input"
+            value={ip}
+            onChange={(event) => onIpChange(event.target.value)}
+            placeholder="192.168.0.42"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button className="btn btn-primary" type="submit" disabled={isConnecting}>
+            {isConnecting ? <LoaderCircle className="spin" size={18} /> : <Link size={18} />}
+            {isConnecting ? "Conectando" : "Conectar"}
+          </button>
+        </div>
+        <p className="card-hint">WebSocket no Raspberry (porta 8765) precisa estar ativo.</p>
+      </div>
     </form>
   );
 }

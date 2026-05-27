@@ -1,30 +1,243 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Square } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ChevronsUp,
+  ChevronsDown,
+  Bot,
+  XCircle,
+  Gamepad2,
+  Square,
+} from "lucide-react";
 
-const commands = [
-  { action: "move_forward", label: "Frente", icon: ArrowUp },
-  { action: "turn_left", label: "Esquerda", icon: ArrowLeft },
-  { action: "stop", label: "Parar", icon: Square },
-  { action: "turn_right", label: "Direita", icon: ArrowRight },
-  { action: "move_backward", label: "Trás", icon: ArrowDown },
-];
+const HOLD_REPEAT_MS = 180;
 
-export function CommandPanel({ disabled, onCommand }) {
+const HOLD_ACTIONS = new Set([
+  "move_forward",
+  "turn_left",
+  "turn_right",
+  "move_backward",
+  "fork_up",
+  "fork_down",
+]);
+
+const commands = {
+  move_forward: { label: "Frente", icon: ArrowUp },
+  turn_left: { label: "Esquerda", icon: ArrowLeft },
+  stop: { label: "Parar", icon: Square },
+  turn_right: { label: "Direita", icon: ArrowRight },
+  move_backward: { label: "Trás", icon: ArrowDown },
+};
+
+export function CommandPanel({ disabled, onCommand, autonomousActive }) {
+  const holdIntervalRef = useRef(null);
+  const heldActionRef = useRef(null);
+
+  const clearHold = useCallback(() => {
+    if (holdIntervalRef.current != null) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+    const prev = heldActionRef.current;
+    if (prev == null) return;
+    heldActionRef.current = null;
+    if (HOLD_ACTIONS.has(prev)) {
+      onCommand("stop");
+    }
+  }, [onCommand]);
+
+  useEffect(() => {
+    if (disabled) {
+      clearHold();
+    }
+  }, [disabled, clearHold]);
+
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === "hidden") {
+        clearHold();
+      }
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => document.removeEventListener("visibilitychange", onHidden);
+  }, [clearHold]);
+
+  const startHold = useCallback(
+    (action) => (event) => {
+      if (disabled || !HOLD_ACTIONS.has(action)) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      if (heldActionRef.current != null) return;
+      event.preventDefault();
+      heldActionRef.current = action;
+      onCommand(action);
+      holdIntervalRef.current = window.setInterval(() => onCommand(action), HOLD_REPEAT_MS);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        //
+      }
+    },
+    [disabled, onCommand],
+  );
+
+  const endHold = useCallback(
+    (event) => {
+      if (heldActionRef.current == null) return;
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        //
+      }
+      clearHold();
+    },
+    [clearHold],
+  );
+
   return (
-    <section className="panel">
-      <div className="panel-header">
+    <section className="card card-commands">
+      <div className="card-header">
+        <div className="card-header-icon card-header-icon--commands">
+          <Gamepad2 size={18} />
+        </div>
         <div>
-          <span className="section-kicker">Teste</span>
+          <span className="card-kicker">Controle</span>
           <h2>Comandos</h2>
         </div>
       </div>
 
-      <div className="command-grid">
-        {commands.map(({ action, label, icon: Icon }) => (
-          <button key={action} type="button" disabled={disabled} onClick={() => onCommand(action)}>
-            <Icon size={20} />
-            {label}
+      <div className="card-body">
+        <div className={`dpad ${disabled ? "dpad--disabled" : ""}`}>
+          <button
+            className="dpad-btn dpad-btn--up"
+            type="button"
+            disabled={disabled}
+            onPointerDown={startHold("move_forward")}
+            onPointerUp={endHold}
+            onPointerCancel={endHold}
+            onLostPointerCapture={clearHold}
+          >
+            <ArrowUp size={22} strokeWidth={2.5} />
+            <span>{commands.move_forward.label}</span>
           </button>
-        ))}
+
+          <button
+            className="dpad-btn dpad-btn--left"
+            type="button"
+            disabled={disabled}
+            onPointerDown={startHold("turn_left")}
+            onPointerUp={endHold}
+            onPointerCancel={endHold}
+            onLostPointerCapture={clearHold}
+          >
+            <ArrowLeft size={22} strokeWidth={2.5} />
+            <span>{commands.turn_left.label}</span>
+          </button>
+
+          <button
+            className="dpad-btn dpad-btn--center"
+            type="button"
+            disabled={disabled}
+            onClick={() => onCommand("stop")}
+          >
+            <Square size={20} fill="currentColor" strokeWidth={0} />
+            <span>{commands.stop.label}</span>
+          </button>
+
+          <button
+            className="dpad-btn dpad-btn--right"
+            type="button"
+            disabled={disabled}
+            onPointerDown={startHold("turn_right")}
+            onPointerUp={endHold}
+            onPointerCancel={endHold}
+            onLostPointerCapture={clearHold}
+          >
+            <ArrowRight size={22} strokeWidth={2.5} />
+            <span>{commands.turn_right.label}</span>
+          </button>
+
+          <button
+            className="dpad-btn dpad-btn--down"
+            type="button"
+            disabled={disabled}
+            onPointerDown={startHold("move_backward")}
+            onPointerUp={endHold}
+            onPointerCancel={endHold}
+            onLostPointerCapture={clearHold}
+          >
+            <ArrowDown size={22} strokeWidth={2.5} />
+            <span>{commands.move_backward.label}</span>
+          </button>
+        </div>
+
+        <div className="extra-controls">
+          <div className="extra-controls-group">
+            <span className="card-kicker">Garfo</span>
+            <div className="extra-controls-grid">
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={disabled}
+                onPointerDown={startHold("fork_up")}
+                onPointerUp={endHold}
+                onPointerCancel={endHold}
+                onLostPointerCapture={clearHold}
+              >
+                <ChevronsUp size={18} />
+                Subir garfo
+              </button>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={disabled}
+                onPointerDown={startHold("fork_down")}
+                onPointerUp={endHold}
+                onPointerCancel={endHold}
+                onLostPointerCapture={clearHold}
+              >
+                <ChevronsDown size={18} />
+                Descer garfo
+              </button>
+            </div>
+          </div>
+
+          <div className="extra-controls-group">
+            <span className="card-kicker">Autonomia</span>
+            {autonomousActive ? (
+              <button
+                className="btn btn-danger btn-full"
+                type="button"
+                disabled={disabled}
+                onClick={() => onCommand("stop_autonomous_mode")}
+              >
+                <XCircle size={18} />
+                Parar modo autônomo
+              </button>
+            ) : (
+              <button
+                className="btn btn-autonomous"
+                type="button"
+                disabled={disabled}
+                onClick={() => onCommand("start_autonomous_mode")}
+              >
+                <Bot size={18} />
+                Iniciar modo autônomo
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!disabled ? (
+          <p className="card-hint card-hint--center">
+            Mantenha pressionado direção ou garfo para repetir o comando; ao soltar, envia parar.
+          </p>
+        ) : (
+          <p className="card-hint card-hint--center card-hint--muted">
+            Conecte ao Raspberry Pi para habilitar os comandos.
+          </p>
+        )}
       </div>
     </section>
   );
