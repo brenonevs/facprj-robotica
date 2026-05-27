@@ -56,7 +56,10 @@ async def telemetry_forward_loop() -> None:
             continue
         payload = parse_telemetry_line(line)
         if payload is None:
+            print(f"[telemetry] Linha inválida do Arduino: {line}")
             continue
+        clients = len(connected_clients)
+        print(f"[telemetry] Arduino → Pi ({clients} cliente(s) WS): {line}")
         await broadcast_telemetry(payload)
 
 
