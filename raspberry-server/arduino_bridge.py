@@ -4,6 +4,8 @@ import threading
 import time
 from collections import deque
 
+from telemetry_parser import build_simulated_telemetry_line
+
 ACTION_TO_LINE = {
     "stop": "S",
     "move_forward": "M F",
@@ -37,6 +39,9 @@ class ArduinoBridge:
         self._write_lock = threading.Lock()
         self._connected = False
         self._recent_lines: deque[str] = deque(maxlen=32)
+        self._sim_autonomous = False
+        self._sim_tick = 0
+        self._sim_thread: threading.Thread | None = None
 
     @property
     def connected(self) -> bool:
@@ -54,6 +59,12 @@ class ArduinoBridge:
         self._stop_event.clear()
         if self._simulate:
             self._connected = True
+            self._sim_thread = threading.Thread(
+                target=self._sim_telemetry_loop,
+                name="arduino-sim-telemetry",
+                daemon=True,
+            )
+            self._sim_thread.start()
             print("[arduino] Modo simulado (ARDUINO_SIMULATE=1)")
             return
         try:
@@ -78,6 +89,9 @@ class ArduinoBridge:
         if self._reader_thread is not None:
             self._reader_thread.join(timeout=2.0)
             self._reader_thread = None
+        if self._sim_thread is not None:
+            self._sim_thread.join(timeout=2.0)
+            self._sim_thread = None
         with self._write_lock:
             if self._serial is not None and self._serial.is_open:
                 self._serial.close()
@@ -88,6 +102,10 @@ class ArduinoBridge:
         if line is None:
             return False, f"Ação desconhecida: {action}"
         if self._simulate:
+            if line == "A 1":
+                self._sim_autonomous = True
+            elif line == "A 0":
+                self._sim_autonomous = False
             response = f"OK {line}"
             self._push_line(response)
             print(f"[arduino:sim] >> {line}  << {response}")
@@ -137,7 +155,8 @@ class ArduinoBridge:
             line = raw.decode("ascii", errors="replace").strip()
             if line:
                 self._push_line(line)
-                print(f"[arduino] << {line}")
+                if not line.startswith("T"):
+                    print(f"[arduino] << {line}")
 
     def _push_line(self, line: str) -> None:
         self._recent_lines.append(line)
@@ -151,6 +170,13 @@ class ArduinoBridge:
                 pass
 
         self._loop.call_soon_threadsafe(put_nowait)
+
+    def _sim_telemetry_loop(self) -> None:
+        while not self._stop_event.is_set():
+            self._sim_tick += 1
+            line = build_simulated_telemetry_line(self._sim_tick, self._sim_autonomous)
+            self._push_line(line)
+            time.sleep(1.0)
 
 
 bridge = ArduinoBridge()

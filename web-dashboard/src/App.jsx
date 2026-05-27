@@ -6,7 +6,7 @@ import { ConnectionMetrics } from "./components/ConnectionMetrics.jsx";
 import { ConnectionStatus } from "./components/ConnectionStatus.jsx";
 import { MessageLog } from "./components/MessageLog.jsx";
 import { TelemetryDashboard } from "./components/TelemetryDashboard.jsx";
-import { useMockTelemetry } from "./hooks/useMockTelemetry.js";
+import { OFFLINE_TELEMETRY, telemetryFromWebSocketMessage } from "./lib/telemetry.js";
 import { createCommandMessage, createWebSocketUrl } from "./services/websocket.js";
 
 const savedIp = localStorage.getItem("raspberry_ip") ?? "";
@@ -26,9 +26,9 @@ export function App() {
   const [handshakeMs, setHandshakeMs] = useState(null);
   const [firstResponseMs, setFirstResponseMs] = useState(null);
   const [lastRttMs, setLastRttMs] = useState(null);
+  const [telemetry, setTelemetry] = useState(OFFLINE_TELEMETRY);
 
   const isConnected = status === "connected";
-  const telemetry = useMockTelemetry(isConnected, autonomousMode);
   const statusLabel = useMemo(() => {
     const labels = {
       disconnected: "Desconectado",
@@ -62,6 +62,7 @@ export function App() {
 
   const disconnect = useCallback(() => {
     setAutonomousMode(false);
+    setTelemetry(OFFLINE_TELEMETRY);
     resetLatency();
     socketRef.current?.close();
     socketRef.current = null;
@@ -106,6 +107,15 @@ export function App() {
         setLastRttMs(Math.round(t - pendingRttRef.current));
         pendingRttRef.current = null;
       }
+      try {
+        const parsed = JSON.parse(event.data);
+        if (parsed.type === "telemetry") {
+          setTelemetry(telemetryFromWebSocketMessage(parsed));
+          return;
+        }
+      } catch {
+        /* não é JSON de telemetria */
+      }
       addLog(`Recebido: ${event.data}`, "incoming");
     });
 
@@ -116,6 +126,7 @@ export function App() {
     socket.addEventListener("close", () => {
       setStatus("disconnected");
       setAutonomousMode(false);
+      setTelemetry(OFFLINE_TELEMETRY);
       resetLatency();
       addLog("Conexão encerrada.");
       if (socketRef.current === socket) {

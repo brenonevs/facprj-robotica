@@ -5,6 +5,7 @@ from datetime import datetime
 from websockets.asyncio.server import ServerConnection, serve
 
 from arduino_bridge import bridge
+from telemetry_parser import parse_telemetry_line
 
 
 HOST = "0.0.0.0"
@@ -29,6 +30,34 @@ async def send_status(websocket: ServerConnection, status: str, detail: str) -> 
             server_time=datetime.now().isoformat(timespec="seconds"),
         )
     )
+
+
+async def broadcast_telemetry(payload: dict) -> None:
+    if not connected_clients:
+        return
+    message = json_message("telemetry", **payload)
+    stale: list[ServerConnection] = []
+    for websocket in list(connected_clients):
+        try:
+            await websocket.send(message)
+        except Exception:
+            stale.append(websocket)
+    for websocket in stale:
+        connected_clients.discard(websocket)
+
+
+async def telemetry_forward_loop() -> None:
+    queue = bridge.get_line_queue()
+    if queue is None:
+        return
+    while True:
+        line = await queue.get()
+        if not line.startswith("T"):
+            continue
+        payload = parse_telemetry_line(line)
+        if payload is None:
+            continue
+        await broadcast_telemetry(payload)
 
 
 async def handle_client(websocket: ServerConnection) -> None:
@@ -90,11 +119,14 @@ async def main() -> None:
         print("[arduino] Comandos WebSocket retornarão erro até a serial estar disponível.")
         print("[arduino] Use ARDUINO_SIMULATE=1 para desenvolver sem hardware.")
 
+    telemetry_task = asyncio.create_task(telemetry_forward_loop())
+
     print(f"Servidor WebSocket rodando em ws://{HOST}:{PORT}")
     try:
         async with serve(handle_client, HOST, PORT):
             await asyncio.Future()
     finally:
+        telemetry_task.cancel()
         bridge.stop()
 
 

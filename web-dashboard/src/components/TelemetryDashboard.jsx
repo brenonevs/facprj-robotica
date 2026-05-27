@@ -192,7 +192,7 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected }) {
                 {telemetry.aprilTagDetected ? (
                   <p className="telemetry-auto-detail">
                     Tag <strong>#{telemetry.aprilTagId}</strong> a{" "}
-                    <strong>{telemetry.aprilTagDistanceM} m</strong> (simulado)
+                    <strong>{telemetry.aprilTagDistanceM} m</strong> (firmware)
                   </p>
                 ) : (
                   <p className="telemetry-auto-detail telemetry-auto-detail--muted">Nenhuma tag no frame</p>
