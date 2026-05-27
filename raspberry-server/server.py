@@ -4,10 +4,11 @@ from datetime import datetime
 
 from websockets.asyncio.server import ServerConnection, serve
 
+from arduino_bridge import bridge
+
 
 HOST = "0.0.0.0"
 PORT = 8765
-
 
 connected_clients: set[ServerConnection] = set()
 
@@ -23,6 +24,8 @@ async def send_status(websocket: ServerConnection, status: str, detail: str) -> 
             status=status,
             detail=detail,
             connected_clients=len(connected_clients),
+            arduino_connected=bridge.connected,
+            arduino_simulate=bridge.simulate,
             server_time=datetime.now().isoformat(timespec="seconds"),
         )
     )
@@ -47,12 +50,27 @@ async def handle_client(websocket: ServerConnection) -> None:
 
             action = message.get("action", "unknown")
 
+            ok, arduino_detail = await asyncio.to_thread(bridge.send_action, action)
+
+            if not ok:
+                await websocket.send(
+                    json_message(
+                        "error",
+                        received_action=action,
+                        detail=arduino_detail or "Falha ao enviar comando ao Arduino.",
+                        arduino_connected=bridge.connected,
+                    )
+                )
+                continue
+
             await websocket.send(
                 json_message(
                     "ack",
                     received_action=action,
                     received_message=message,
-                    detail="Comando recebido pelo servidor do Raspberry Pi.",
+                    arduino_response=arduino_detail,
+                    arduino_connected=bridge.connected,
+                    detail="Comando encaminhado ao Arduino.",
                 )
             )
 
@@ -64,9 +82,20 @@ async def handle_client(websocket: ServerConnection) -> None:
 
 
 async def main() -> None:
+    loop = asyncio.get_running_loop()
+    try:
+        bridge.start(loop)
+    except RuntimeError as error:
+        print(f"[arduino] Aviso: {error}")
+        print("[arduino] Comandos WebSocket retornarão erro até a serial estar disponível.")
+        print("[arduino] Use ARDUINO_SIMULATE=1 para desenvolver sem hardware.")
+
     print(f"Servidor WebSocket rodando em ws://{HOST}:{PORT}")
-    async with serve(handle_client, HOST, PORT):
-        await asyncio.Future()
+    try:
+        async with serve(handle_client, HOST, PORT):
+            await asyncio.Future()
+    finally:
+        bridge.stop()
 
 
 if __name__ == "__main__":
