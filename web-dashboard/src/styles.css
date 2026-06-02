@@ -84,61 +84,6 @@ input {
   flex-wrap: wrap;
 }
 
-.dashboard-header-controls {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.header-arduino-mock {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--surface-inset);
-}
-
-.header-arduino-mock-icon {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.22);
-  color: #fbbf24;
-}
-
-.header-arduino-mock-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 100px;
-}
-
-.header-arduino-mock-kicker {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.header-arduino-mock-label {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--text-secondary);
-}
-
-.header-arduino-mock-label--on {
-  color: #fde68a;
-}
-
 .header-connection {
   display: flex;
   align-items: center;
@@ -211,33 +156,6 @@ input {
   min-height: 38px;
   padding-inline: 14px;
   font-size: 0.82rem;
-}
-
-.btn-arduino-mock {
-  min-height: 38px;
-  padding-inline: 12px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  border-color: var(--border-strong);
-  color: var(--text-secondary);
-  background: var(--surface-inset);
-}
-
-.btn-arduino-mock:hover:not(:disabled) {
-  color: var(--text);
-  border-color: rgba(251, 191, 36, 0.45);
-  background: rgba(251, 191, 36, 0.08);
-}
-
-.btn-arduino-mock--on {
-  color: #fde68a;
-  border-color: rgba(251, 191, 36, 0.5);
-  background: rgba(251, 191, 36, 0.14);
-  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.12);
-}
-
-.btn-arduino-mock:disabled {
-  opacity: 0.45;
 }
 
 .brand {
@@ -785,10 +703,79 @@ input {
   color: var(--warning);
 }
 
+.telemetry-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0 20px 0 0;
+}
+
+.telemetry-mock-toggle {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-inset);
+  gap: 4px;
+}
+
+.telemetry-mock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.telemetry-mock-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.telemetry-mock-btn--active {
+  color: #042f2e;
+  background: linear-gradient(180deg, #2ee4cc 0%, #1fb89f 100%);
+  border-color: rgba(45, 212, 191, 0.45);
+}
+
+.telemetry-mock-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.telemetry-waiting-body {
+  padding: 28px 20px;
+  text-align: center;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border);
+  background: var(--surface-inset);
+}
+
+.telemetry-waiting-body p {
+  margin: 0;
+  max-width: 420px;
+  margin-inline: auto;
+  font-size: 0.92rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
 .telemetry-mode-pill {
   flex-shrink: 0;
   align-self: center;
-  margin: 0 20px 0 0;
   padding: 5px 12px;
   border-radius: 999px;
   font-size: 11px;
@@ -2070,13 +2057,7 @@ input {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-header-controls {
-    width: 100%;
-    flex-direction: column;
-  }
-
-  .header-connection,
-  .header-arduino-mock {
+  .header-connection {
     width: 100%;
     justify-content: flex-start;
   }

@@ -6,16 +6,11 @@ import { ConnectionStreamCard } from "./components/ConnectionStreamCard.jsx";
 import { ConnectionWsCard } from "./components/ConnectionWsCard.jsx";
 import { ConnectionForm } from "./components/ConnectionForm.jsx";
 import { CameraFeed } from "./components/CameraFeed.jsx";
-import { HeaderArduinoMockToggle } from "./components/HeaderArduinoMockToggle.jsx";
 import { HeaderConnectionStatus } from "./components/HeaderConnectionStatus.jsx";
 import { MessageLog } from "./components/MessageLog.jsx";
 import { TelemetryDashboard } from "./components/TelemetryDashboard.jsx";
 import { OFFLINE_TELEMETRY, telemetryFromWebSocketMessage } from "./lib/telemetry.js";
-import {
-  createArduinoSimulateMessage,
-  createCommandMessage,
-  createWebSocketUrl,
-} from "./services/websocket.js";
+import { createCommandMessage, createWebSocketUrl } from "./services/websocket.js";
 
 const savedIp = localStorage.getItem("raspberry_ip") ?? "";
 
@@ -38,7 +33,14 @@ export function App() {
   const [firstResponseMs, setFirstResponseMs] = useState(null);
   const [lastRttMs, setLastRttMs] = useState(null);
   const [telemetry, setTelemetry] = useState(OFFLINE_TELEMETRY);
-  const [arduinoSimulate, setArduinoSimulate] = useState(false);
+  const [hasTelemetryData, setHasTelemetryData] = useState(false);
+  const [telemetryMock, setTelemetryMock] = useState(false);
+  const [mockTogglePending, setMockTogglePending] = useState(false);
+  const [visionApril, setVisionApril] = useState({
+    detected: false,
+    id: null,
+    distanceM: null,
+  });
 
   const isConnected = status === "connected";
   const statusLabel = useMemo(() => {
@@ -74,8 +76,11 @@ export function App() {
 
   const disconnect = useCallback(() => {
     setAutonomousMode(false);
-    setArduinoSimulate(false);
     setTelemetry(OFFLINE_TELEMETRY);
+    setHasTelemetryData(false);
+    setTelemetryMock(false);
+    setMockTogglePending(false);
+    setVisionApril({ detected: false, id: null, distanceM: null });
     resetLatency();
     socketRef.current?.close();
     socketRef.current = null;
@@ -122,26 +127,46 @@ export function App() {
       }
       try {
         const parsed = JSON.parse(event.data);
-        if (parsed.arduino_simulate !== undefined) {
-          setArduinoSimulate(Boolean(parsed.arduino_simulate));
-        }
         if (parsed.type === "status") {
-          addLog(parsed.detail ?? "Status do servidor.", "incoming");
+          setTelemetryMock(Boolean(parsed.arduino_simulate));
+          if (!parsed.arduino_simulate) {
+            setHasTelemetryData(false);
+          }
+          return;
+        }
+        if (parsed.type === "telemetry_clear") {
+          setHasTelemetryData(false);
+          return;
+        }
+        if (parsed.type === "telemetry_mode") {
+          setMockTogglePending(false);
+          setTelemetryMock(Boolean(parsed.telemetry_mock));
+          if (!parsed.telemetry_mock) {
+            setHasTelemetryData(false);
+          }
+          addLog(parsed.detail ?? "Modo de telemetria atualizado.", parsed.ok ? "success" : "error");
           return;
         }
         if (parsed.type === "telemetry") {
+          setHasTelemetryData(true);
           setTelemetry(telemetryFromWebSocketMessage(parsed));
+          return;
+        }
+        if (parsed.type === "error") {
+          if (mockTogglePending) {
+            setMockTogglePending(false);
+          }
+          addLog(parsed.detail ?? "Erro no servidor.", "error");
           return;
         }
         if (parsed.type === "vision") {
           const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
           const primary = tags[0];
-          setTelemetry((current) => ({
-            ...current,
-            aprilTagDetected: tags.length > 0,
-            aprilTagId: primary ? Number(primary.id) : null,
-            aprilTagDistanceM: primary ? Number(primary.distance_m) : null,
-          }));
+          setVisionApril({
+            detected: tags.length > 0,
+            id: primary ? Number(primary.id) : null,
+            distanceM: primary ? Number(primary.distance_m) : null,
+          });
           const visionKey = JSON.stringify(tags);
           if (visionKey !== lastVisionLogRef.current) {
             lastVisionLogRef.current = visionKey;
@@ -154,24 +179,6 @@ export function App() {
               addLog("[Visão] Nenhuma AprilTag no frame", "neutral");
             }
           }
-          return;
-        }
-        if (parsed.type === "ack") {
-          if (parsed.received_action === "set_arduino_simulate") {
-            setAutonomousMode(false);
-            addLog(parsed.detail ?? "Modo do Arduino alterado.", "success");
-            return;
-          }
-          addLog(
-            parsed.detail
-              ? `Ack: ${parsed.detail}`
-              : `Ack: ${parsed.received_action ?? "comando"}`,
-            "success",
-          );
-          return;
-        }
-        if (parsed.type === "error") {
-          addLog(parsed.detail ?? "Erro do servidor.", "error");
           return;
         }
       } catch {
@@ -187,8 +194,11 @@ export function App() {
     socket.addEventListener("close", () => {
       setStatus("disconnected");
       setAutonomousMode(false);
-      setArduinoSimulate(false);
       setTelemetry(OFFLINE_TELEMETRY);
+      setHasTelemetryData(false);
+      setTelemetryMock(false);
+      setMockTogglePending(false);
+      setVisionApril({ detected: false, id: null, distanceM: null });
       resetLatency();
       addLog("Conexão encerrada.");
       if (socketRef.current === socket) {
@@ -217,14 +227,14 @@ export function App() {
   }, [activeTab, autonomousMode, isConnected, status]);
 
   const sendCommand = useCallback(
-    (action) => {
+    (action, extra = {}) => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         addLog("Não há conexão aberta para enviar comando.", "error");
         return;
       }
 
-      const message = createCommandMessage(action);
+      const message = createCommandMessage(action, extra);
       pendingRttRef.current = performance.now();
       socket.send(JSON.stringify(message));
       addLog(`Enviado: ${JSON.stringify(message)}`, "outgoing");
@@ -238,20 +248,28 @@ export function App() {
     [addLog],
   );
 
-  const toggleArduinoSimulate = useCallback(() => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      addLog("Conecte ao Raspberry Pi para alternar o modo mock.", "error");
-      return;
-    }
-    const next = !arduinoSimulate;
-    const message = createArduinoSimulateMessage(next);
-    socket.send(JSON.stringify(message));
-    addLog(
-      `Modo Arduino: ${next ? "ativando mock" : "ativando serial real"}…`,
-      "outgoing",
-    );
-  }, [addLog, arduinoSimulate]);
+  const setTelemetryMockMode = useCallback(
+    (enabled) => {
+      if (telemetryMock === enabled) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        addLog("Conecte ao Raspberry Pi para alterar o modo de telemetria.", "error");
+        return;
+      }
+      setMockTogglePending(true);
+      setHasTelemetryData(false);
+      setAutonomousMode(false);
+      const message = createCommandMessage("set_telemetry_mock", { enabled });
+      socket.send(JSON.stringify(message));
+      addLog(
+        `Modo de telemetria: ${enabled ? "mock (simulado)" : "Arduino real"}…`,
+        "outgoing",
+      );
+    },
+    [addLog, telemetryMock],
+  );
 
   return (
     <div className="dashboard">
@@ -267,19 +285,12 @@ export function App() {
             </div>
           </div>
           {activeTab === "operation" ? (
-            <div className="dashboard-header-controls">
-              <HeaderConnectionStatus
-                label={statusLabel}
-                status={status}
-                isConnected={isConnected}
-                onDisconnect={disconnect}
-              />
-              <HeaderArduinoMockToggle
-                arduinoSimulate={arduinoSimulate}
-                isConnected={isConnected}
-                onToggle={toggleArduinoSimulate}
-              />
-            </div>
+            <HeaderConnectionStatus
+              label={statusLabel}
+              status={status}
+              isConnected={isConnected}
+              onDisconnect={disconnect}
+            />
           ) : null}
         </div>
         <p className="header-subtitle">
@@ -367,17 +378,13 @@ export function App() {
                 handshakeMs={handshakeMs}
                 lastRttMs={lastRttMs}
               />
-              <ConnectionNetworkCard
-                ip={ip}
-                connected={isConnected}
-                arduinoSimulate={arduinoSimulate}
-              />
+              <ConnectionNetworkCard ip={ip} connected={isConnected} />
               <ConnectionStreamCard
                 ip={ip}
                 connected={isConnected}
-                aprilTagDetected={telemetry.aprilTagDetected}
-                aprilTagId={telemetry.aprilTagId}
-                aprilTagDistanceM={telemetry.aprilTagDistanceM}
+                aprilTagDetected={visionApril.detected}
+                aprilTagId={visionApril.id}
+                aprilTagDistanceM={visionApril.distanceM}
                 autonomousMode={autonomousMode}
               />
             </div>
@@ -423,6 +430,10 @@ export function App() {
             telemetry={telemetry}
             autonomousMode={autonomousMode}
             connected={isConnected}
+            hasTelemetryData={hasTelemetryData}
+            telemetryMock={telemetryMock}
+            mockTogglePending={mockTogglePending}
+            onTelemetryMockChange={setTelemetryMockMode}
             status={status}
             handshakeMs={handshakeMs}
             firstResponseMs={firstResponseMs}

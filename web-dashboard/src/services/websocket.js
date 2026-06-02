@@ -17,7 +17,3 @@ export function createCommandMessage(action, extra = {}) {
     ...extra,
   };
 }
-
-export function createArduinoSimulateMessage(enabled) {
-  return createCommandMessage("set_arduino_simulate", { enabled });
-}

@@ -1,4 +1,5 @@
 import { TelemetryLatencySection } from "./TelemetryLatencySection.jsx";
+import { TelemetryMockToggle } from "./TelemetryMockToggle.jsx";
 import {
   Activity,
   AlertTriangle,
@@ -98,11 +99,17 @@ export function TelemetryDashboard({
   telemetry,
   autonomousMode,
   connected,
+  hasTelemetryData,
+  telemetryMock,
+  mockTogglePending,
+  onTelemetryMockChange,
   status,
   handshakeMs,
   firstResponseMs,
   lastRttMs,
 }) {
+  const showSensorData = connected && hasTelemetryData;
+
   if (!connected) {
     return (
       <section className="card card-telemetry card-telemetry--idle">
@@ -146,13 +153,34 @@ export function TelemetryDashboard({
             <h2>Telemetria</h2>
           </div>
         </div>
-        <span className={`telemetry-mode-pill ${autonomousMode ? "telemetry-mode-pill--auto" : ""}`}>
-          {autonomousMode ? "Modo autônomo" : "Modo manual"}
-        </span>
+        <div className="telemetry-header-actions">
+          <TelemetryMockToggle
+            enabled={telemetryMock}
+            disabled={mockTogglePending}
+            onChange={onTelemetryMockChange}
+          />
+          {showSensorData ? (
+            <span className={`telemetry-mode-pill ${autonomousMode ? "telemetry-mode-pill--auto" : ""}`}>
+              {autonomousMode ? "Modo autônomo" : "Modo manual"}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="telemetry-layout">
         <div className="telemetry-main telemetry-main--full">
+          {!showSensorData ? (
+            <div className="telemetry-waiting-body">
+              <p>
+                {telemetryMock
+                  ? "Aguardando telemetria simulada do servidor…"
+                  : "Aguardando telemetria do Arduino. Sem dados na serial, nada é exibido."}
+              </p>
+            </div>
+          ) : null}
+
+          {showSensorData ? (
+            <>
           <BatteryBlock percent={telemetry.batteryPercent} voltage={telemetry.batteryVoltage} />
 
           <div className="telemetry-temps">
@@ -241,6 +269,8 @@ export function TelemetryDashboard({
               <p className="telemetry-all-clear">Nenhum erro ou alerta ativo.</p>
             ) : null}
           </div>
+            </>
+          ) : null}
 
           <TelemetryLatencySection
             status={status}
