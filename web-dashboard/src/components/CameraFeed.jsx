@@ -13,28 +13,30 @@ export function CameraFeed({ ip, connected, autonomousMode }) {
 
   return (
     <div className={`camera-feed ${autonomousMode ? "camera-feed--auto" : ""}`}>
-      {showStream ? (
-        <img
-          className="camera-feed-img"
-          src={streamUrl}
-          alt="Câmera da empilhadeira"
-          onError={() => setStreamError(true)}
-          onLoad={() => setStreamError(false)}
-        />
-      ) : (
-        <div className="camera-feed-placeholder">
-          <VideoOff size={28} strokeWidth={1.8} />
-          <p>{connected ? "Stream indisponível" : "Conecte ao Raspberry Pi"}</p>
+      <div className="camera-feed-frame">
+        {showStream ? (
+          <img
+            className="camera-feed-img"
+            src={streamUrl}
+            alt="Câmera da empilhadeira"
+            onError={() => setStreamError(true)}
+            onLoad={() => setStreamError(false)}
+          />
+        ) : (
+          <div className="camera-feed-placeholder">
+            <VideoOff size={28} strokeWidth={1.8} />
+            <p>{connected ? "Stream indisponível" : "Conecte ao Raspberry Pi"}</p>
+          </div>
+        )}
+        <div className="camera-feed-overlay">
+          <span className="camera-feed-badge">
+            <Video size={14} />
+            {showStream ? "AO VIVO" : "OFFLINE"}
+          </span>
+          <span className="camera-feed-meta">
+            {showStream ? "MJPEG · visão computacional" : "http://IP:8766/stream"}
+          </span>
         </div>
-      )}
-      <div className="camera-feed-overlay">
-        <span className="camera-feed-badge">
-          <Video size={14} />
-          {showStream ? "AO VIVO" : "OFFLINE"}
-        </span>
-        <span className="camera-feed-meta">
-          {showStream ? "MJPEG · visão computacional" : "http://IP:8766/stream"}
-        </span>
       </div>
     </div>
   );

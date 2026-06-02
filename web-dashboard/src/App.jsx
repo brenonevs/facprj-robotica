@@ -1,9 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Activity, Bot, LayoutDashboard, Trash2 } from "lucide-react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Activity, Bot, LayoutDashboard, Trash2, Video } from "lucide-react";
 import { CommandPanel } from "./components/CommandPanel.jsx";
+import { ConnectionNetworkCard } from "./components/ConnectionNetworkCard.jsx";
+import { ConnectionStreamCard } from "./components/ConnectionStreamCard.jsx";
+import { ConnectionWsCard } from "./components/ConnectionWsCard.jsx";
 import { ConnectionForm } from "./components/ConnectionForm.jsx";
-import { ConnectionMetrics } from "./components/ConnectionMetrics.jsx";
-import { ConnectionStatus } from "./components/ConnectionStatus.jsx";
+import { CameraFeed } from "./components/CameraFeed.jsx";
+import { HeaderConnectionStatus } from "./components/HeaderConnectionStatus.jsx";
 import { MessageLog } from "./components/MessageLog.jsx";
 import { TelemetryDashboard } from "./components/TelemetryDashboard.jsx";
 import { OFFLINE_TELEMETRY, telemetryFromWebSocketMessage } from "./lib/telemetry.js";
@@ -18,6 +21,8 @@ export function App() {
   const firstMsgRecordedRef = useRef(false);
   const pendingRttRef = useRef(null);
   const lastVisionLogRef = useRef("");
+  const commandsCardRef = useRef(null);
+  const [controlsPanelHeight, setControlsPanelHeight] = useState(null);
 
   const [ip, setIp] = useState(savedIp);
   const [status, setStatus] = useState("disconnected");
@@ -159,6 +164,25 @@ export function App() {
     });
   }, [addLog, disconnect, ip, resetLatency]);
 
+  useLayoutEffect(() => {
+    if (activeTab !== "operation") {
+      return;
+    }
+    const element = commandsCardRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateHeight = () => {
+      setControlsPanelHeight(element.offsetHeight);
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activeTab, autonomousMode, isConnected, status]);
+
   const sendCommand = useCallback(
     (action) => {
       const socket = socketRef.current;
@@ -184,14 +208,24 @@ export function App() {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <div className="brand">
-          <div className="brand-icon">
-            <Bot size={22} strokeWidth={2.2} />
+        <div className="dashboard-header-top">
+          <div className="brand">
+            <div className="brand-icon">
+              <Bot size={22} strokeWidth={2.2} />
+            </div>
+            <div>
+              <p className="brand-kicker">Faculdade · Robótica</p>
+              <h1>Empilhadeira Robótica</h1>
+            </div>
           </div>
-          <div>
-            <p className="brand-kicker">Faculdade · Robótica</p>
-            <h1>Empilhadeira Robótica</h1>
-          </div>
+          {activeTab === "operation" ? (
+            <HeaderConnectionStatus
+              label={statusLabel}
+              status={status}
+              isConnected={isConnected}
+              onDisconnect={disconnect}
+            />
+          ) : null}
         </div>
         <p className="header-subtitle">
           Painel de controle remoto via WebSocket para o Raspberry Pi
@@ -230,33 +264,64 @@ export function App() {
           aria-labelledby="tab-operation"
           id="panel-operation"
         >
-          <div className="dashboard-grid">
-            <ConnectionForm
-              ip={ip}
-              onIpChange={setIp}
-              onConnect={connect}
-              isConnecting={status === "connecting"}
-            />
+          <div
+            className="dashboard-grid dashboard-grid--operation"
+            style={
+              controlsPanelHeight
+                ? { "--operation-controls-height": `${controlsPanelHeight}px` }
+                : undefined
+            }
+          >
+            <section className="card card-camera">
+              <div className="card-header">
+                <div className="card-header-icon card-header-icon--camera">
+                  <Video size={18} />
+                </div>
+                <div>
+                  <span className="card-kicker">Visão</span>
+                  <h2>Câmera ao vivo</h2>
+                </div>
+              </div>
+              <div className="card-body card-body--camera">
+                <CameraFeed
+                  ip={ip}
+                  connected={isConnected}
+                  autonomousMode={autonomousMode}
+                />
+              </div>
+            </section>
 
-            <ConnectionStatus
-              label={statusLabel}
-              status={status}
-              isConnected={isConnected}
-              onDisconnect={disconnect}
-            />
+            <div ref={commandsCardRef} className="operation-commands-slot">
+              <CommandPanel
+                disabled={!isConnected}
+                onCommand={sendCommand}
+                autonomousActive={autonomousMode}
+              />
+            </div>
 
-            <ConnectionMetrics
-              status={status}
-              handshakeMs={handshakeMs}
-              firstResponseMs={firstResponseMs}
-              lastRttMs={lastRttMs}
-            />
-
-            <CommandPanel
-              disabled={!isConnected}
-              onCommand={sendCommand}
-              autonomousActive={autonomousMode}
-            />
+            <div className="operation-network-row">
+              <ConnectionForm
+                ip={ip}
+                onIpChange={setIp}
+                onConnect={connect}
+                isConnecting={status === "connecting"}
+              />
+              <ConnectionWsCard
+                ip={ip}
+                connected={isConnected}
+                handshakeMs={handshakeMs}
+                lastRttMs={lastRttMs}
+              />
+              <ConnectionNetworkCard ip={ip} connected={isConnected} />
+              <ConnectionStreamCard
+                ip={ip}
+                connected={isConnected}
+                aprilTagDetected={telemetry.aprilTagDetected}
+                aprilTagId={telemetry.aprilTagId}
+                aprilTagDistanceM={telemetry.aprilTagDistanceM}
+                autonomousMode={autonomousMode}
+              />
+            </div>
 
             <section className="card card-console">
               <div className="card-header card-header--spread">
@@ -282,7 +347,9 @@ export function App() {
                   <Trash2 size={17} />
                 </button>
               </div>
-              <MessageLog logs={logs} />
+              <div className="card-console-body">
+                <MessageLog logs={logs} />
+              </div>
             </section>
           </div>
         </div>
@@ -297,7 +364,10 @@ export function App() {
             telemetry={telemetry}
             autonomousMode={autonomousMode}
             connected={isConnected}
-            raspberryIp={ip}
+            status={status}
+            handshakeMs={handshakeMs}
+            firstResponseMs={firstResponseMs}
+            lastRttMs={lastRttMs}
           />
         </div>
       )}

@@ -1,3 +1,4 @@
+import { TelemetryLatencySection } from "./TelemetryLatencySection.jsx";
 import {
   Activity,
   AlertTriangle,
@@ -6,12 +7,9 @@ import {
   Gauge,
   Scale,
   ShieldAlert,
-  Tag,
   Thermometer,
   Workflow,
 } from "lucide-react";
-import { CameraFeed } from "./CameraFeed.jsx";
-
 function Metric({ label, value, unit, icon: Icon }) {
   return (
     <div className="telemetry-metric telemetry-metric--card">
@@ -96,7 +94,15 @@ function TempBar({ label, celsius }) {
   );
 }
 
-export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspberryIp }) {
+export function TelemetryDashboard({
+  telemetry,
+  autonomousMode,
+  connected,
+  status,
+  handshakeMs,
+  firstResponseMs,
+  lastRttMs,
+}) {
   if (!connected) {
     return (
       <section className="card card-telemetry card-telemetry--idle">
@@ -109,8 +115,18 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspb
             <h2>Telemetria</h2>
           </div>
         </div>
-        <div className="telemetry-idle-body">
-          <p>Conecte ao Raspberry Pi para visualizar dados simulados e o vídeo de referência.</p>
+        <div className="telemetry-layout">
+          <div className="telemetry-main telemetry-main--full">
+            <div className="telemetry-idle-body">
+              <p>Conecte ao Raspberry Pi para visualizar os dados dos sensores.</p>
+            </div>
+            <TelemetryLatencySection
+              status={status}
+              handshakeMs={handshakeMs}
+              firstResponseMs={firstResponseMs}
+              lastRttMs={lastRttMs}
+            />
+          </div>
         </div>
       </section>
     );
@@ -136,7 +152,7 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspb
       </div>
 
       <div className="telemetry-layout">
-        <div className="telemetry-main">
+        <div className="telemetry-main telemetry-main--full">
           <BatteryBlock percent={telemetry.batteryPercent} voltage={telemetry.batteryVoltage} />
 
           <div className="telemetry-temps">
@@ -182,22 +198,8 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspb
             </div>
           </div>
 
-          <div className="telemetry-auto-strip">
-            <div className="telemetry-auto-card">
-              <div className="telemetry-auto-card-head">
-                <Tag size={16} />
-                <span>AprilTag</span>
-              </div>
-              {telemetry.aprilTagDetected ? (
-                <p className="telemetry-auto-detail">
-                  Tag <strong>#{telemetry.aprilTagId}</strong> a{" "}
-                  <strong>{telemetry.aprilTagDistanceM?.toFixed(2)} m</strong> (visão)
-                </p>
-              ) : (
-                <p className="telemetry-auto-detail telemetry-auto-detail--muted">Nenhuma tag no frame</p>
-              )}
-            </div>
-            {autonomousMode ? (
+          {autonomousMode ? (
+            <div className="telemetry-auto-strip">
               <div className="telemetry-auto-card">
                 <div className="telemetry-auto-card-head">
                   <Workflow size={16} />
@@ -205,8 +207,8 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspb
                 </div>
                 <p className="telemetry-fsm">{telemetry.fsmState}</p>
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           <div className="telemetry-alerts-stack">
             {errors.length > 0 ? (
@@ -239,18 +241,13 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspb
               <p className="telemetry-all-clear">Nenhum erro ou alerta ativo.</p>
             ) : null}
           </div>
-        </div>
 
-        <div className="telemetry-video-col">
-          <span className="card-kicker telemetry-video-kicker">Vídeo</span>
-          <CameraFeed
-            ip={raspberryIp}
-            connected={connected}
-            autonomousMode={autonomousMode}
+          <TelemetryLatencySection
+            status={status}
+            handshakeMs={handshakeMs}
+            firstResponseMs={firstResponseMs}
+            lastRttMs={lastRttMs}
           />
-          <p className="card-hint telemetry-video-hint">
-            Stream MJPEG do Raspberry Pi com overlay de AprilTags.
-          </p>
         </div>
       </div>
     </section>
