@@ -33,14 +33,6 @@ export function App() {
   const [firstResponseMs, setFirstResponseMs] = useState(null);
   const [lastRttMs, setLastRttMs] = useState(null);
   const [telemetry, setTelemetry] = useState(OFFLINE_TELEMETRY);
-  const [hasTelemetryData, setHasTelemetryData] = useState(false);
-  const [telemetryMock, setTelemetryMock] = useState(false);
-  const [mockTogglePending, setMockTogglePending] = useState(false);
-  const [visionApril, setVisionApril] = useState({
-    detected: false,
-    id: null,
-    distanceM: null,
-  });
 
   const isConnected = status === "connected";
   const statusLabel = useMemo(() => {
@@ -77,10 +69,6 @@ export function App() {
   const disconnect = useCallback(() => {
     setAutonomousMode(false);
     setTelemetry(OFFLINE_TELEMETRY);
-    setHasTelemetryData(false);
-    setTelemetryMock(false);
-    setMockTogglePending(false);
-    setVisionApril({ detected: false, id: null, distanceM: null });
     resetLatency();
     socketRef.current?.close();
     socketRef.current = null;
@@ -127,46 +115,19 @@ export function App() {
       }
       try {
         const parsed = JSON.parse(event.data);
-        if (parsed.type === "status") {
-          setTelemetryMock(Boolean(parsed.arduino_simulate));
-          if (!parsed.arduino_simulate) {
-            setHasTelemetryData(false);
-          }
-          return;
-        }
-        if (parsed.type === "telemetry_clear") {
-          setHasTelemetryData(false);
-          return;
-        }
-        if (parsed.type === "telemetry_mode") {
-          setMockTogglePending(false);
-          setTelemetryMock(Boolean(parsed.telemetry_mock));
-          if (!parsed.telemetry_mock) {
-            setHasTelemetryData(false);
-          }
-          addLog(parsed.detail ?? "Modo de telemetria atualizado.", parsed.ok ? "success" : "error");
-          return;
-        }
         if (parsed.type === "telemetry") {
-          setHasTelemetryData(true);
           setTelemetry(telemetryFromWebSocketMessage(parsed));
-          return;
-        }
-        if (parsed.type === "error") {
-          if (mockTogglePending) {
-            setMockTogglePending(false);
-          }
-          addLog(parsed.detail ?? "Erro no servidor.", "error");
           return;
         }
         if (parsed.type === "vision") {
           const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
           const primary = tags[0];
-          setVisionApril({
-            detected: tags.length > 0,
-            id: primary ? Number(primary.id) : null,
-            distanceM: primary ? Number(primary.distance_m) : null,
-          });
+          setTelemetry((current) => ({
+            ...current,
+            aprilTagDetected: tags.length > 0,
+            aprilTagId: primary ? Number(primary.id) : null,
+            aprilTagDistanceM: primary ? Number(primary.distance_m) : null,
+          }));
           const visionKey = JSON.stringify(tags);
           if (visionKey !== lastVisionLogRef.current) {
             lastVisionLogRef.current = visionKey;
@@ -195,10 +156,6 @@ export function App() {
       setStatus("disconnected");
       setAutonomousMode(false);
       setTelemetry(OFFLINE_TELEMETRY);
-      setHasTelemetryData(false);
-      setTelemetryMock(false);
-      setMockTogglePending(false);
-      setVisionApril({ detected: false, id: null, distanceM: null });
       resetLatency();
       addLog("Conexão encerrada.");
       if (socketRef.current === socket) {
@@ -227,14 +184,14 @@ export function App() {
   }, [activeTab, autonomousMode, isConnected, status]);
 
   const sendCommand = useCallback(
-    (action, extra = {}) => {
+    (action) => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         addLog("Não há conexão aberta para enviar comando.", "error");
         return;
       }
 
-      const message = createCommandMessage(action, extra);
+      const message = createCommandMessage(action);
       pendingRttRef.current = performance.now();
       socket.send(JSON.stringify(message));
       addLog(`Enviado: ${JSON.stringify(message)}`, "outgoing");
@@ -246,29 +203,6 @@ export function App() {
       }
     },
     [addLog],
-  );
-
-  const setTelemetryMockMode = useCallback(
-    (enabled) => {
-      if (telemetryMock === enabled) {
-        return;
-      }
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        addLog("Conecte ao Raspberry Pi para alterar o modo de telemetria.", "error");
-        return;
-      }
-      setMockTogglePending(true);
-      setHasTelemetryData(false);
-      setAutonomousMode(false);
-      const message = createCommandMessage("set_telemetry_mock", { enabled });
-      socket.send(JSON.stringify(message));
-      addLog(
-        `Modo de telemetria: ${enabled ? "mock (simulado)" : "Arduino real"}…`,
-        "outgoing",
-      );
-    },
-    [addLog, telemetryMock],
   );
 
   return (
@@ -382,9 +316,9 @@ export function App() {
               <ConnectionStreamCard
                 ip={ip}
                 connected={isConnected}
-                aprilTagDetected={visionApril.detected}
-                aprilTagId={visionApril.id}
-                aprilTagDistanceM={visionApril.distanceM}
+                aprilTagDetected={telemetry.aprilTagDetected}
+                aprilTagId={telemetry.aprilTagId}
+                aprilTagDistanceM={telemetry.aprilTagDistanceM}
                 autonomousMode={autonomousMode}
               />
             </div>
@@ -430,10 +364,6 @@ export function App() {
             telemetry={telemetry}
             autonomousMode={autonomousMode}
             connected={isConnected}
-            hasTelemetryData={hasTelemetryData}
-            telemetryMock={telemetryMock}
-            mockTogglePending={mockTogglePending}
-            onTelemetryMockChange={setTelemetryMockMode}
             status={status}
             handshakeMs={handshakeMs}
             firstResponseMs={firstResponseMs}

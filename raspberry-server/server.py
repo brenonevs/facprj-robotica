@@ -116,22 +116,6 @@ async def handle_client(websocket: ServerConnection) -> None:
 
             action = message.get("action", "unknown")
 
-            if action == "set_telemetry_mock":
-                enabled = bool(message.get("enabled", False))
-                ok, detail = await asyncio.to_thread(bridge.set_simulate, enabled)
-                if ok and not bridge.simulate:
-                    await broadcast_payload("telemetry_clear")
-                await websocket.send(
-                    json_message(
-                        "telemetry_mode" if ok else "error",
-                        telemetry_mock=bridge.simulate,
-                        arduino_connected=bridge.connected,
-                        detail=detail,
-                        ok=ok,
-                    )
-                )
-                continue
-
             ok, arduino_detail = await asyncio.to_thread(bridge.send_action, action)
 
             if not ok:

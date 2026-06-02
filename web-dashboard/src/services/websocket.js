@@ -9,11 +9,10 @@ export function createCameraStreamUrl(ip) {
   return `http://${ip}:${CAMERA_STREAM_PORT}/stream`;
 }
 
-export function createCommandMessage(action, extra = {}) {
+export function createCommandMessage(action) {
   return {
     type: "command",
     action,
     sent_at: new Date().toISOString(),
-    ...extra,
   };
 }
