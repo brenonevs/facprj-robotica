@@ -17,6 +17,7 @@ export function App() {
   const openAtRef = useRef(null);
   const firstMsgRecordedRef = useRef(false);
   const pendingRttRef = useRef(null);
+  const lastVisionLogRef = useRef("");
 
   const [ip, setIp] = useState(savedIp);
   const [status, setStatus] = useState("disconnected");
@@ -111,6 +112,29 @@ export function App() {
         const parsed = JSON.parse(event.data);
         if (parsed.type === "telemetry") {
           setTelemetry(telemetryFromWebSocketMessage(parsed));
+          return;
+        }
+        if (parsed.type === "vision") {
+          const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
+          const primary = tags[0];
+          setTelemetry((current) => ({
+            ...current,
+            aprilTagDetected: tags.length > 0,
+            aprilTagId: primary ? Number(primary.id) : null,
+            aprilTagDistanceM: primary ? Number(primary.distance_m) : null,
+          }));
+          const visionKey = JSON.stringify(tags);
+          if (visionKey !== lastVisionLogRef.current) {
+            lastVisionLogRef.current = visionKey;
+            if (tags.length > 0) {
+              const summary = tags
+                .map((tag) => `ID ${tag.id} @ ${Number(tag.distance_m).toFixed(2)} m`)
+                .join(", ");
+              addLog(`[Visão] ${tags.length} AprilTag(s): ${summary}`, "success");
+            } else {
+              addLog("[Visão] Nenhuma AprilTag no frame", "neutral");
+            }
+          }
           return;
         }
       } catch {
@@ -273,6 +297,7 @@ export function App() {
             telemetry={telemetry}
             autonomousMode={autonomousMode}
             connected={isConnected}
+            raspberryIp={ip}
           />
         </div>
       )}

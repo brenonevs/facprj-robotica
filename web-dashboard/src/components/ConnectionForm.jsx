@@ -38,7 +38,9 @@ export function ConnectionForm({ ip, onIpChange, onConnect, isConnecting }) {
             {isConnecting ? "Conectando" : "Conectar"}
           </button>
         </div>
-        <p className="card-hint">WebSocket no Raspberry (porta 8765) precisa estar ativo.</p>
+        <p className="card-hint">
+          WebSocket (8765) e stream de câmera MJPEG (8766) precisam estar ativos no Raspberry.
+        </p>
       </div>
     </form>
   );

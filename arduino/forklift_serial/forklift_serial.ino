@@ -72,7 +72,7 @@ void sendTelemetry() {
   float tr = 35.0f + (telemetryTick % 8) * 0.32f;
   float load = autonomous ? 14.5f + (telemetryTick % 5) : 0.0f;
   int rssi = -52 - (int)(telemetryTick % 7);
-  int imu = (telemetryTick % 47 == 0) ? 0 : 1;
+  int imu = (telemetryTick % 47 == 0) ? 0 : 1; 
   float lv = (telemetryTick % 4 == 0) ? 0.15f : 0.0f;
   float av = (telemetryTick % 5 == 0) ? 0.08f : 0.0f;
 

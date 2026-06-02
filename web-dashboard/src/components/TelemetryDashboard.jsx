@@ -10,7 +10,7 @@ import {
   Thermometer,
   Workflow,
 } from "lucide-react";
-import { MockCameraFeed } from "./MockCameraFeed.jsx";
+import { CameraFeed } from "./CameraFeed.jsx";
 
 function Metric({ label, value, unit, icon: Icon }) {
   return (
@@ -96,7 +96,7 @@ function TempBar({ label, celsius }) {
   );
 }
 
-export function TelemetryDashboard({ telemetry, autonomousMode, connected }) {
+export function TelemetryDashboard({ telemetry, autonomousMode, connected, raspberryIp }) {
   if (!connected) {
     return (
       <section className="card card-telemetry card-telemetry--idle">
@@ -182,22 +182,22 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected }) {
             </div>
           </div>
 
-          {autonomousMode ? (
-            <div className="telemetry-auto-strip">
-              <div className="telemetry-auto-card">
-                <div className="telemetry-auto-card-head">
-                  <Tag size={16} />
-                  <span>AprilTag</span>
-                </div>
-                {telemetry.aprilTagDetected ? (
-                  <p className="telemetry-auto-detail">
-                    Tag <strong>#{telemetry.aprilTagId}</strong> a{" "}
-                    <strong>{telemetry.aprilTagDistanceM} m</strong> (firmware)
-                  </p>
-                ) : (
-                  <p className="telemetry-auto-detail telemetry-auto-detail--muted">Nenhuma tag no frame</p>
-                )}
+          <div className="telemetry-auto-strip">
+            <div className="telemetry-auto-card">
+              <div className="telemetry-auto-card-head">
+                <Tag size={16} />
+                <span>AprilTag</span>
               </div>
+              {telemetry.aprilTagDetected ? (
+                <p className="telemetry-auto-detail">
+                  Tag <strong>#{telemetry.aprilTagId}</strong> a{" "}
+                  <strong>{telemetry.aprilTagDistanceM?.toFixed(2)} m</strong> (visão)
+                </p>
+              ) : (
+                <p className="telemetry-auto-detail telemetry-auto-detail--muted">Nenhuma tag no frame</p>
+              )}
+            </div>
+            {autonomousMode ? (
               <div className="telemetry-auto-card">
                 <div className="telemetry-auto-card-head">
                   <Workflow size={16} />
@@ -205,8 +205,8 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected }) {
                 </div>
                 <p className="telemetry-fsm">{telemetry.fsmState}</p>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
           <div className="telemetry-alerts-stack">
             {errors.length > 0 ? (
@@ -243,9 +243,13 @@ export function TelemetryDashboard({ telemetry, autonomousMode, connected }) {
 
         <div className="telemetry-video-col">
           <span className="card-kicker telemetry-video-kicker">Vídeo</span>
-          <MockCameraFeed autonomousMode={autonomousMode} />
+          <CameraFeed
+            ip={raspberryIp}
+            connected={connected}
+            autonomousMode={autonomousMode}
+          />
           <p className="card-hint telemetry-video-hint">
-            Stream simulado — substitua por WebRTC ou MJPEG quando o backend estiver pronto.
+            Stream MJPEG do Raspberry Pi com overlay de AprilTags.
           </p>
         </div>
       </div>

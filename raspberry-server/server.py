@@ -1,15 +1,18 @@
 import asyncio
 import json
+import os
 from datetime import datetime
 
 from websockets.asyncio.server import ServerConnection, serve
 
 from arduino_bridge import bridge
 from telemetry_parser import parse_telemetry_line
+from vision import vision_service
 
 
 HOST = "0.0.0.0"
 PORT = 8765
+CAMERA_PORT = int(os.environ.get("CAMERA_PORT", "8766"))
 
 connected_clients: set[ServerConnection] = set()
 
@@ -27,15 +30,18 @@ async def send_status(websocket: ServerConnection, status: str, detail: str) -> 
             connected_clients=len(connected_clients),
             arduino_connected=bridge.connected,
             arduino_simulate=bridge.simulate,
+            vision_active=vision_service.active,
+            vision_disabled=vision_service.disabled,
+            camera_stream_port=CAMERA_PORT,
             server_time=datetime.now().isoformat(timespec="seconds"),
         )
     )
 
 
-async def broadcast_telemetry(payload: dict) -> None:
+async def broadcast_payload(message_type: str, payload: dict) -> None:
     if not connected_clients:
         return
-    message = json_message("telemetry", **payload)
+    message = json_message(message_type, **payload)
     stale: list[ServerConnection] = []
     for websocket in list(connected_clients):
         try:
@@ -44,6 +50,10 @@ async def broadcast_telemetry(payload: dict) -> None:
             stale.append(websocket)
     for websocket in stale:
         connected_clients.discard(websocket)
+
+
+async def broadcast_telemetry(payload: dict) -> None:
+    await broadcast_payload("telemetry", payload)
 
 
 async def telemetry_forward_loop() -> None:
@@ -61,6 +71,30 @@ async def telemetry_forward_loop() -> None:
         clients = len(connected_clients)
         print(f"[telemetry] Arduino → Pi ({clients} cliente(s) WS): {line}")
         await broadcast_telemetry(payload)
+
+
+async def vision_broadcast_loop() -> None:
+    last_broadcast_key = ""
+    while True:
+        await asyncio.sleep(0.25)
+        if not connected_clients or not vision_service.active:
+            continue
+        state = vision_service.get_latest_state()
+        broadcast_key = json.dumps(state.get("tags", []), sort_keys=True)
+        if broadcast_key != last_broadcast_key:
+            last_broadcast_key = broadcast_key
+            clients = len(connected_clients)
+            if state["tag_count"] > 0:
+                summary = ", ".join(
+                    f"#{t['id']}@{t['distance_m']:.2f}m" for t in state["tags"]
+                )
+                print(
+                    f"[vision] Pi → WS ({clients} cliente(s)): "
+                    f"{state['tag_count']} tag(s) [{summary}]"
+                )
+            else:
+                print(f"[vision] Pi → WS ({clients} cliente(s)): nenhuma tag")
+        await broadcast_payload("vision", **state)
 
 
 async def handle_client(websocket: ServerConnection) -> None:
@@ -122,14 +156,21 @@ async def main() -> None:
         print("[arduino] Comandos WebSocket retornarão erro até a serial estar disponível.")
         print("[arduino] Use ARDUINO_SIMULATE=1 para desenvolver sem hardware.")
 
+    vision_service.start(HOST, CAMERA_PORT)
+
     telemetry_task = asyncio.create_task(telemetry_forward_loop())
+    vision_task = asyncio.create_task(vision_broadcast_loop())
 
     print(f"Servidor WebSocket rodando em ws://{HOST}:{PORT}")
+    if not vision_service.disabled:
+        print(f"Stream de câmera em http://<IP>:{CAMERA_PORT}/stream")
     try:
         async with serve(handle_client, HOST, PORT):
             await asyncio.Future()
     finally:
         telemetry_task.cancel()
+        vision_task.cancel()
+        vision_service.stop()
         bridge.stop()
 
 
