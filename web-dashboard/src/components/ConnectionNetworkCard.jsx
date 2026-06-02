@@ -1,7 +1,7 @@
 import { Server, Terminal } from "lucide-react";
 import { CAMERA_STREAM_PORT, WEBSOCKET_PORT } from "../services/websocket.js";
 
-export function ConnectionNetworkCard({ ip, connected }) {
+export function ConnectionNetworkCard({ ip, connected, arduinoSimulate }) {
   const trimmedIp = ip.trim();
 
   return (
@@ -36,7 +36,9 @@ export function ConnectionNetworkCard({ ip, connected }) {
         </div>
         <p className="card-hint network-tile-hint">
           {connected
-            ? "Servidor acessível na rede local."
+            ? arduinoSimulate
+              ? "Telemetria Arduino em modo mock."
+              : "Telemetria Arduino pela serial real."
             : "Confira IP, Wi‑Fi e se o server.py está rodando."}
         </p>
       </div>

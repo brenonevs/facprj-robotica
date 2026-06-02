@@ -1,4 +1,4 @@
-import { LoaderCircle, Plug, Power, WifiOff } from "lucide-react";
+import { FlaskConical, LoaderCircle, Plug, Power, WifiOff } from "lucide-react";
 
 const statusConfig = {
   disconnected: {
@@ -15,7 +15,14 @@ const statusConfig = {
   },
 };
 
-export function HeaderConnectionStatus({ label, status, isConnected, onDisconnect }) {
+export function HeaderConnectionStatus({
+  label,
+  status,
+  isConnected,
+  arduinoSimulate,
+  onDisconnect,
+  onToggleArduinoSimulate,
+}) {
   const config = statusConfig[status] ?? statusConfig.disconnected;
   const Icon = config.icon;
 
@@ -30,6 +37,21 @@ export function HeaderConnectionStatus({ label, status, isConnected, onDisconnec
           {label}
         </span>
       </div>
+      <button
+        className={`btn btn-arduino-mock ${arduinoSimulate ? "btn-arduino-mock--on" : ""}`}
+        type="button"
+        onClick={onToggleArduinoSimulate}
+        disabled={!isConnected}
+        aria-pressed={arduinoSimulate}
+        title={
+          arduinoSimulate
+            ? "Telemetria mock ativa — clique para usar Arduino real"
+            : "Arduino real — clique para ativar telemetria mock"
+        }
+      >
+        <FlaskConical size={16} />
+        {arduinoSimulate ? "Mock ativo" : "Mock off"}
+      </button>
       <button
         className="btn btn-danger btn-header-disconnect"
         type="button"

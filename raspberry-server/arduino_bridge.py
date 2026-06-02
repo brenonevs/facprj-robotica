@@ -51,8 +51,15 @@ class ArduinoBridge:
     def simulate(self) -> bool:
         return self._simulate
 
-    def start(self, loop: asyncio.AbstractEventLoop) -> None:
+    def _is_running(self) -> bool:
         if self._reader_thread is not None and self._reader_thread.is_alive():
+            return True
+        if self._sim_thread is not None and self._sim_thread.is_alive():
+            return True
+        return False
+
+    def start(self, loop: asyncio.AbstractEventLoop) -> None:
+        if self._is_running():
             return
         self._loop = loop
         self._line_queue = asyncio.Queue()
@@ -96,6 +103,34 @@ class ArduinoBridge:
             if self._serial is not None and self._serial.is_open:
                 self._serial.close()
             self._serial = None
+        self._stop_event = threading.Event()
+
+    def set_simulate(self, enabled: bool) -> tuple[bool, str]:
+        enabled = bool(enabled)
+        loop = self._loop
+        if loop is None:
+            return False, "Bridge do Arduino não inicializado."
+
+        if enabled == self._simulate and self._is_running():
+            mode = "simulado (mock)" if enabled else f"real ({self.port})"
+            return True, f"Arduino já está em modo {mode}."
+
+        self.stop()
+        self._simulate = enabled
+        self._sim_autonomous = False
+        self._sim_tick = 0
+        self._recent_lines.clear()
+
+        try:
+            self.start(loop)
+        except RuntimeError as error:
+            return False, str(error)
+
+        if self._simulate:
+            return True, "Telemetria e comandos em modo simulado (mock)."
+        if self._connected:
+            return True, f"Arduino real conectado em {self.port}."
+        return False, f"Modo real ativo, mas falha ao abrir {self.port}."
 
     def send_action(self, action: str) -> tuple[bool, str | None]:
         line = ACTION_TO_LINE.get(action)

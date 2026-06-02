@@ -21,6 +21,31 @@ def json_message(message_type: str, **data) -> str:
     return json.dumps({"type": message_type, **data}, ensure_ascii=False)
 
 
+def parse_bool(value) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in ("1", "true", "yes", "on"):
+            return True
+        if raw in ("0", "false", "no", "off"):
+            return False
+    return None
+
+
+async def broadcast_status_to_clients(detail: str) -> None:
+    stale: list[ServerConnection] = []
+    for websocket in list(connected_clients):
+        try:
+            await send_status(websocket, "connected", detail)
+        except Exception:
+            stale.append(websocket)
+    for websocket in stale:
+        connected_clients.discard(websocket)
+
+
 async def send_status(websocket: ServerConnection, status: str, detail: str) -> None:
     await websocket.send(
         json_message(
@@ -116,6 +141,48 @@ async def handle_client(websocket: ServerConnection) -> None:
 
             action = message.get("action", "unknown")
 
+            if action == "set_arduino_simulate":
+                enabled = parse_bool(message.get("enabled"))
+                if enabled is None:
+                    await websocket.send(
+                        json_message(
+                            "error",
+                            received_action=action,
+                            detail="Campo 'enabled' (true/false) é obrigatório.",
+                            arduino_connected=bridge.connected,
+                            arduino_simulate=bridge.simulate,
+                        )
+                    )
+                    continue
+
+                ok, arduino_detail = await asyncio.to_thread(bridge.set_simulate, enabled)
+                if not ok:
+                    await websocket.send(
+                        json_message(
+                            "error",
+                            received_action=action,
+                            detail=arduino_detail or "Falha ao alternar modo do Arduino.",
+                            arduino_connected=bridge.connected,
+                            arduino_simulate=bridge.simulate,
+                        )
+                    )
+                    continue
+
+                print(f"[arduino] Modo alterado via painel: simulate={bridge.simulate}")
+                await websocket.send(
+                    json_message(
+                        "ack",
+                        received_action=action,
+                        received_message=message,
+                        arduino_response=arduino_detail,
+                        arduino_connected=bridge.connected,
+                        arduino_simulate=bridge.simulate,
+                        detail=arduino_detail,
+                    )
+                )
+                await broadcast_status_to_clients(arduino_detail)
+                continue
+
             ok, arduino_detail = await asyncio.to_thread(bridge.send_action, action)
 
             if not ok:
@@ -125,6 +192,7 @@ async def handle_client(websocket: ServerConnection) -> None:
                         received_action=action,
                         detail=arduino_detail or "Falha ao enviar comando ao Arduino.",
                         arduino_connected=bridge.connected,
+                        arduino_simulate=bridge.simulate,
                     )
                 )
                 continue
@@ -136,6 +204,7 @@ async def handle_client(websocket: ServerConnection) -> None:
                     received_message=message,
                     arduino_response=arduino_detail,
                     arduino_connected=bridge.connected,
+                    arduino_simulate=bridge.simulate,
                     detail="Comando encaminhado ao Arduino.",
                 )
             )

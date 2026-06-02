@@ -158,6 +158,33 @@ input {
   font-size: 0.82rem;
 }
 
+.btn-arduino-mock {
+  min-height: 38px;
+  padding-inline: 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+  background: var(--surface-inset);
+}
+
+.btn-arduino-mock:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.btn-arduino-mock--on {
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.14);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.12);
+}
+
+.btn-arduino-mock:disabled {
+  opacity: 0.45;
+}
+
 .brand {
   display: flex;
   align-items: center;

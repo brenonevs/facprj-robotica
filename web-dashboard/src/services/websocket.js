@@ -9,10 +9,15 @@ export function createCameraStreamUrl(ip) {
   return `http://${ip}:${CAMERA_STREAM_PORT}/stream`;
 }
 
-export function createCommandMessage(action) {
+export function createCommandMessage(action, extra = {}) {
   return {
     type: "command",
     action,
     sent_at: new Date().toISOString(),
+    ...extra,
   };
+}
+
+export function createArduinoSimulateMessage(enabled) {
+  return createCommandMessage("set_arduino_simulate", { enabled });
 }

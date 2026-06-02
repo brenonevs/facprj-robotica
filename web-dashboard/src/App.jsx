@@ -10,7 +10,11 @@ import { HeaderConnectionStatus } from "./components/HeaderConnectionStatus.jsx"
 import { MessageLog } from "./components/MessageLog.jsx";
 import { TelemetryDashboard } from "./components/TelemetryDashboard.jsx";
 import { OFFLINE_TELEMETRY, telemetryFromWebSocketMessage } from "./lib/telemetry.js";
-import { createCommandMessage, createWebSocketUrl } from "./services/websocket.js";
+import {
+  createArduinoSimulateMessage,
+  createCommandMessage,
+  createWebSocketUrl,
+} from "./services/websocket.js";
 
 const savedIp = localStorage.getItem("raspberry_ip") ?? "";
 
@@ -33,6 +37,7 @@ export function App() {
   const [firstResponseMs, setFirstResponseMs] = useState(null);
   const [lastRttMs, setLastRttMs] = useState(null);
   const [telemetry, setTelemetry] = useState(OFFLINE_TELEMETRY);
+  const [arduinoSimulate, setArduinoSimulate] = useState(false);
 
   const isConnected = status === "connected";
   const statusLabel = useMemo(() => {
@@ -68,6 +73,7 @@ export function App() {
 
   const disconnect = useCallback(() => {
     setAutonomousMode(false);
+    setArduinoSimulate(false);
     setTelemetry(OFFLINE_TELEMETRY);
     resetLatency();
     socketRef.current?.close();
@@ -115,6 +121,13 @@ export function App() {
       }
       try {
         const parsed = JSON.parse(event.data);
+        if (parsed.arduino_simulate !== undefined) {
+          setArduinoSimulate(Boolean(parsed.arduino_simulate));
+        }
+        if (parsed.type === "status") {
+          addLog(parsed.detail ?? "Status do servidor.", "incoming");
+          return;
+        }
         if (parsed.type === "telemetry") {
           setTelemetry(telemetryFromWebSocketMessage(parsed));
           return;
@@ -142,6 +155,24 @@ export function App() {
           }
           return;
         }
+        if (parsed.type === "ack") {
+          if (parsed.received_action === "set_arduino_simulate") {
+            setAutonomousMode(false);
+            addLog(parsed.detail ?? "Modo do Arduino alterado.", "success");
+            return;
+          }
+          addLog(
+            parsed.detail
+              ? `Ack: ${parsed.detail}`
+              : `Ack: ${parsed.received_action ?? "comando"}`,
+            "success",
+          );
+          return;
+        }
+        if (parsed.type === "error") {
+          addLog(parsed.detail ?? "Erro do servidor.", "error");
+          return;
+        }
       } catch {
         /* não é JSON de telemetria */
       }
@@ -155,6 +186,7 @@ export function App() {
     socket.addEventListener("close", () => {
       setStatus("disconnected");
       setAutonomousMode(false);
+      setArduinoSimulate(false);
       setTelemetry(OFFLINE_TELEMETRY);
       resetLatency();
       addLog("Conexão encerrada.");
@@ -205,6 +237,21 @@ export function App() {
     [addLog],
   );
 
+  const toggleArduinoSimulate = useCallback(() => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      addLog("Conecte ao Raspberry Pi para alternar o modo mock.", "error");
+      return;
+    }
+    const next = !arduinoSimulate;
+    const message = createArduinoSimulateMessage(next);
+    socket.send(JSON.stringify(message));
+    addLog(
+      `Modo Arduino: ${next ? "ativando mock" : "ativando serial real"}…`,
+      "outgoing",
+    );
+  }, [addLog, arduinoSimulate]);
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -223,7 +270,9 @@ export function App() {
               label={statusLabel}
               status={status}
               isConnected={isConnected}
+              arduinoSimulate={arduinoSimulate}
               onDisconnect={disconnect}
+              onToggleArduinoSimulate={toggleArduinoSimulate}
             />
           ) : null}
         </div>
@@ -312,7 +361,11 @@ export function App() {
                 handshakeMs={handshakeMs}
                 lastRttMs={lastRttMs}
               />
-              <ConnectionNetworkCard ip={ip} connected={isConnected} />
+              <ConnectionNetworkCard
+                ip={ip}
+                connected={isConnected}
+                arduinoSimulate={arduinoSimulate}
+              />
               <ConnectionStreamCard
                 ip={ip}
                 connected={isConnected}
