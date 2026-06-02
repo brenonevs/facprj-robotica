@@ -6,6 +6,7 @@ import { ConnectionStreamCard } from "./components/ConnectionStreamCard.jsx";
 import { ConnectionWsCard } from "./components/ConnectionWsCard.jsx";
 import { ConnectionForm } from "./components/ConnectionForm.jsx";
 import { CameraFeed } from "./components/CameraFeed.jsx";
+import { HeaderArduinoMockToggle } from "./components/HeaderArduinoMockToggle.jsx";
 import { HeaderConnectionStatus } from "./components/HeaderConnectionStatus.jsx";
 import { MessageLog } from "./components/MessageLog.jsx";
 import { TelemetryDashboard } from "./components/TelemetryDashboard.jsx";
@@ -266,14 +267,19 @@ export function App() {
             </div>
           </div>
           {activeTab === "operation" ? (
-            <HeaderConnectionStatus
-              label={statusLabel}
-              status={status}
-              isConnected={isConnected}
-              arduinoSimulate={arduinoSimulate}
-              onDisconnect={disconnect}
-              onToggleArduinoSimulate={toggleArduinoSimulate}
-            />
+            <div className="dashboard-header-controls">
+              <HeaderConnectionStatus
+                label={statusLabel}
+                status={status}
+                isConnected={isConnected}
+                onDisconnect={disconnect}
+              />
+              <HeaderArduinoMockToggle
+                arduinoSimulate={arduinoSimulate}
+                isConnected={isConnected}
+                onToggle={toggleArduinoSimulate}
+              />
+            </div>
           ) : null}
         </div>
         <p className="header-subtitle">

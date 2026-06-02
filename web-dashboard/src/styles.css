@@ -84,6 +84,61 @@ input {
   flex-wrap: wrap;
 }
 
+.dashboard-header-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.header-arduino-mock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-inset);
+}
+
+.header-arduino-mock-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  color: #fbbf24;
+}
+
+.header-arduino-mock-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100px;
+}
+
+.header-arduino-mock-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.header-arduino-mock-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-secondary);
+}
+
+.header-arduino-mock-label--on {
+  color: #fde68a;
+}
+
 .header-connection {
   display: flex;
   align-items: center;
@@ -2015,7 +2070,13 @@ input {
     grid-template-columns: 1fr;
   }
 
-  .header-connection {
+  .dashboard-header-controls {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .header-connection,
+  .header-arduino-mock {
     width: 100%;
     justify-content: flex-start;
   }
