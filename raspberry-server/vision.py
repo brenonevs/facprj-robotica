@@ -90,7 +90,7 @@ def _draw_tags(frame: np.ndarray, results, new_camera_matrix: np.ndarray) -> Non
         centro = (int(img_points[0].ravel()[0]), int(img_points[0].ravel()[1]))
         eixo_x = (int(img_points[1].ravel()[0]), int(img_points[1].ravel()[1]))
         eixo_y = (int(img_points[2].ravel()[0]), int(img_points[2].ravel()[1]))
-        eixo_z = (int(img_points[3].ravel()[0]), int(img_points[3].ravel()[1])
+        eixo_z = (int(img_points[3].ravel()[0]), int(img_points[3].ravel()[1]))
         cv2.line(frame, centro, eixo_x, (0, 0, 255), 2)
         cv2.line(frame, centro, eixo_y, (0, 255, 0), 2)
         cv2.line(frame, centro, eixo_z, (255, 0, 0), 2)
