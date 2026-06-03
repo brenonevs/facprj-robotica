@@ -14,6 +14,13 @@ import { createCommandMessage, createWebSocketUrl } from "./services/websocket.j
 
 const savedIp = localStorage.getItem("raspberry_ip") ?? "";
 
+function createLogId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 export function App() {
   const socketRef = useRef(null);
   const connectT0Ref = useRef(null);
@@ -57,7 +64,7 @@ export function App() {
   const addLog = useCallback((message, variant = "neutral") => {
     setLogs((currentLogs) => [
       {
-        id: crypto.randomUUID(),
+        id: createLogId(),
         time: new Date().toLocaleTimeString(),
         message,
         variant,
@@ -173,14 +180,24 @@ export function App() {
       return;
     }
 
+    const syncQuery = window.matchMedia("(min-width: 1101px)");
+
     const updateHeight = () => {
+      if (!syncQuery.matches) {
+        setControlsPanelHeight(null);
+        return;
+      }
       setControlsPanelHeight(element.offsetHeight);
     };
 
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
     observer.observe(element);
-    return () => observer.disconnect();
+    syncQuery.addEventListener("change", updateHeight);
+    return () => {
+      observer.disconnect();
+      syncQuery.removeEventListener("change", updateHeight);
+    };
   }, [activeTab, autonomousMode, isConnected, status]);
 
   const sendCommand = useCallback(

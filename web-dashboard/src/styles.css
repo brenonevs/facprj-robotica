@@ -67,7 +67,9 @@ input {
 .dashboard {
   width: min(1500px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 28px 0 40px;
+  padding: 28px 0 max(40px, env(safe-area-inset-bottom));
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
 }
 
 .dashboard-header {
@@ -1924,86 +1926,18 @@ input {
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1100px) {
   .dashboard-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .dashboard-grid--operation {
-    grid-template-columns: minmax(300px, 1.05fr) minmax(260px, 0.95fr);
-    grid-template-rows: auto auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
   }
 
   .dashboard-grid--operation > .card-camera,
   .dashboard-grid--operation > .operation-network-row {
-    height: auto;
-  }
-
-  .dashboard-grid--operation .card-console {
-    height: var(--operation-controls-height, auto);
-    max-height: var(--operation-controls-height, none);
-  }
-
-  .card-camera {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .operation-commands-slot {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .operation-network-row {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .card-console {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .telemetry-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .telemetry-auto-strip {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 720px) {
-  .dashboard {
-    width: calc(100% - 24px);
-    padding: 20px 0 32px;
-  }
-
-  .header-subtitle {
-    margin-left: 0;
-    margin-top: 14px;
-  }
-
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .header-connection {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .dashboard-grid--operation {
-    grid-template-rows: auto;
-  }
-
-  .operation-network-row {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto;
-    height: auto;
-  }
-
-  .operation-network-row > .card {
     height: auto;
   }
 
@@ -2016,22 +1950,145 @@ input {
     height: auto;
   }
 
-  .dashboard-grid--operation .card-console {
-    max-height: none;
-  }
-
-  .dashboard-grid--operation .card-body--camera .camera-feed-frame {
-    width: 100%;
+  .operation-network-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto;
     height: auto;
   }
 
-  .dashboard-tabs {
+  .operation-network-row > .card {
+    height: auto;
+  }
+
+  .dashboard-grid--operation .card-console {
+    height: auto;
+    max-height: none;
+    min-height: 280px;
+  }
+
+  .dashboard-grid--operation .card-console .message-log,
+  .dashboard-grid--operation .card-console .console-empty {
+    min-height: 200px;
+  }
+
+  .telemetry-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .telemetry-auto-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-header-top {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-connection {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .btn-header-disconnect {
+    margin-left: auto;
+  }
+
+  .card-header--spread {
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-inline: 16px;
+  }
+
+  .card-header--spread > .card-header {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .telemetry-mode-pill {
+    margin: 0;
+    width: 100%;
+    text-align: center;
+  }
+
+  .card-header:not(.card-header--spread),
+  .card-body,
+  .latency-metrics {
+    padding-inline: 16px;
+  }
+
+  .card-header--compact {
+    padding-inline: 14px;
+  }
+
+  .card-body--network-tile {
+    padding-inline: 14px;
+  }
+
+  .telemetry-layout {
+    padding-inline: 16px;
+  }
+
+  .dashboard-grid--operation .card-console .message-log,
+  .dashboard-grid--operation .card-console .console-empty,
+  .message-log,
+  .console-empty {
+    margin-inline: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dashboard {
+    width: calc(100% - 24px);
+    padding-top: 20px;
+    padding-bottom: max(32px, env(safe-area-inset-bottom));
+  }
+
+  .header-subtitle {
+    margin-top: 14px;
+    font-size: 0.88rem;
+  }
+
+  .brand h1 {
+    font-size: 1.35rem;
+  }
+
+  .brand-icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .dashboard-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .dashboard-tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .dashboard-tab {
+    flex: 1 0 auto;
     min-width: 0;
-    width: 100%;
+    width: auto;
+    padding-inline: 14px;
+    font-size: 0.85rem;
+  }
+
+  .operation-network-row {
+    grid-template-columns: 1fr;
+  }
+
+  .network-tile-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .telemetry-temps {
+    grid-template-columns: 1fr;
   }
 
   .telemetry-pose-bar {
@@ -2041,7 +2098,7 @@ input {
   .telemetry-pose-cell {
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 14px 14px 16px;
+    padding: 14px;
   }
 
   .telemetry-pose-cell:last-child {
@@ -2058,7 +2115,9 @@ input {
   }
 
   .dpad {
+    width: min(280px, 100%);
     max-width: 100%;
+    margin-inline: auto;
   }
 
   .extra-controls-grid {
@@ -2068,11 +2127,59 @@ input {
   .log-entry {
     grid-template-columns: 1fr;
     gap: 6px;
+    padding-inline: 12px;
   }
 
   .log-meta {
     flex-direction: row;
     align-items: center;
     gap: 8px;
+  }
+
+  .header-connection {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .header-connection-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .btn-header-disconnect {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 400px) {
+  .dashboard {
+    width: calc(100% - 16px);
+  }
+
+  .dashboard-header {
+    margin-bottom: 20px;
+    padding-bottom: 18px;
+  }
+
+  .card-header h2 {
+    font-size: 0.95rem;
+  }
+
+  .dpad-btn {
+    font-size: 0.65rem;
+  }
+
+  .dpad-btn span {
+    display: none;
+  }
+
+  .telemetry-metric--card {
+    min-height: 96px;
+    padding: 14px 12px 16px;
+  }
+
+  .telemetry-metric--card .telemetry-metric-value {
+    font-size: 1.05rem;
   }
 }
