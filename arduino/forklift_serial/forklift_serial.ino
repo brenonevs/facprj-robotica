@@ -1,5 +1,18 @@
+#include <Stepper.h>
+
 const int LED_PIN = LED_BUILTIN;
 const unsigned long TELEMETRY_INTERVAL_MS = 1000;
+
+const int FORK_IN1 = 8;
+const int FORK_IN2 = 9;
+const int FORK_IN3 = 10;
+const int FORK_IN4 = 11;
+const int FORK_STEPS_PER_REV = 200;
+const int FORK_RPM = 80;
+const long FORK_STEPS_MIN = 0;
+const long FORK_STEPS_MAX = 4000;
+
+Stepper forkMotor(FORK_STEPS_PER_REV, FORK_IN1, FORK_IN2, FORK_IN3, FORK_IN4);
 
 String inputBuffer;
 bool autonomous = false;
@@ -7,12 +20,13 @@ unsigned long bootMs = 0;
 unsigned long lastTelemetryMs = 0;
 unsigned long telemetryTick = 0;
 int fsmIndex = 0;
+int forkDir = 0;
+long forkSteps = 2000;
 
 float simX = 1.2f;
 float simY = 0.4f;
 float simTh = 4.5f;
 float simBat = 87.0f;
-float simFork = 42.0f;
 
 void blinkLed(int times) {
   for (int i = 0; i < times; i++) {
@@ -31,6 +45,20 @@ void sendOk(const String& command) {
 void sendErr(const char* reason) {
   Serial.print(F("ERR "));
   Serial.println(reason);
+}
+
+float forkHeightPercent() {
+  if (FORK_STEPS_MAX <= FORK_STEPS_MIN) {
+    return 0.0f;
+  }
+  float pct = (float)(forkSteps - FORK_STEPS_MIN) * 100.0f / (float)(FORK_STEPS_MAX - FORK_STEPS_MIN);
+  if (pct < 0.0f) {
+    return 0.0f;
+  }
+  if (pct > 100.0f) {
+    return 100.0f;
+  }
+  return pct;
 }
 
 const char* fsmName() {
@@ -62,17 +90,13 @@ void sendTelemetry() {
   if (simBat > 100.0f) {
     simBat = 100.0f;
   }
-  simFork += 1.2f;
-  if (simFork > 95.0f) {
-    simFork = 8.0f;
-  }
 
   float v = 20.0f + (simBat / 100.0f) * 5.2f;
   float tl = 36.0f + (telemetryTick % 10) * 0.35f;
   float tr = 35.0f + (telemetryTick % 8) * 0.32f;
   float load = autonomous ? 14.5f + (telemetryTick % 5) : 0.0f;
   int rssi = -52 - (int)(telemetryTick % 7);
-  int imu = (telemetryTick % 47 == 0) ? 0 : 1; 
+  int imu = (telemetryTick % 47 == 0) ? 0 : 1;
   float lv = (telemetryTick % 4 == 0) ? 0.15f : 0.0f;
   float av = (telemetryTick % 5 == 0) ? 0.08f : 0.0f;
 
@@ -110,7 +134,7 @@ void sendTelemetry() {
   Serial.print(F(" av="));
   Serial.print(av, 2);
   Serial.print(F(" fork="));
-  Serial.print(simFork, 0);
+  Serial.print(forkHeightPercent(), 0);
   Serial.print(F(" load="));
   Serial.print(load, 1);
   Serial.print(F(" up="));
@@ -136,6 +160,7 @@ void handleCommand(String line) {
   }
 
   if (line == "S") {
+    forkDir = 0;
     sendOk("S");
     blinkLed(1);
     return;
@@ -147,9 +172,15 @@ void handleCommand(String line) {
     return;
   }
 
-  if (line == "F U" || line == "F D") {
+  if (line == "F U") {
+    forkDir = 1;
     sendOk(line);
-    blinkLed(3);
+    return;
+  }
+
+  if (line == "F D") {
+    forkDir = -1;
+    sendOk(line);
     return;
   }
 
@@ -171,15 +202,7 @@ void handleCommand(String line) {
   sendErr("UNKNOWN");
 }
 
-void setup() {
-  pinMode(LED_PIN, OUTPUT);
-  Serial.begin(115200);
-  inputBuffer.reserve(48);
-  bootMs = millis();
-  lastTelemetryMs = bootMs;
-}
-
-void loop() {
+void processSerialInput() {
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == '\n' || c == '\r') {
@@ -191,6 +214,40 @@ void loop() {
       inputBuffer += c;
     }
   }
+}
+
+void tickForkMotor() {
+  if (forkDir == 0) {
+    return;
+  }
+
+  if (forkDir > 0 && forkSteps >= FORK_STEPS_MAX) {
+    forkDir = 0;
+    return;
+  }
+
+  if (forkDir < 0 && forkSteps <= FORK_STEPS_MIN) {
+    forkDir = 0;
+    return;
+  }
+
+  forkMotor.step(forkDir);
+  forkSteps += forkDir;
+}
+
+void setup() {
+  pinMode(LED_PIN, OUTPUT);
+  Serial.begin(115200);
+  inputBuffer.reserve(48);
+  forkMotor.setSpeed(FORK_RPM);
+  bootMs = millis();
+  lastTelemetryMs = bootMs;
+}
+
+void loop() {
+  processSerialInput();
+  tickForkMotor();
+  processSerialInput();
 
   unsigned long now = millis();
   if (now - lastTelemetryMs >= TELEMETRY_INTERVAL_MS) {
