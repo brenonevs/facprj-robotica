@@ -3,10 +3,10 @@
 const int LED_PIN = LED_BUILTIN;
 const unsigned long TELEMETRY_INTERVAL_MS = 1000;
 
-const int FORK_IN1 = 10;
-const int FORK_IN2 = 11;
-const int FORK_IN3 = 12;
-const int FORK_IN4 = 13;
+const int FORK_IN1 = 8;
+const int FORK_IN2 = 9;
+const int FORK_IN3 = 10;
+const int FORK_IN4 = 11;
 const int FORK_STEPS_PER_REV = 200;
 const int FORK_RPM = 80;
 const long FORK_STEPS_MIN = 0;
