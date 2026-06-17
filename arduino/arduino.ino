@@ -13,19 +13,19 @@ const int FORK_RPM = 80;
 const long FORK_STEPS_MIN = 0;
 const long FORK_STEPS_MAX = 4000;
 
-const int GND_PIN = 4;
-const int VCC_PIN = 5;
-const int ENABLE1 = 7;
-const int ENABLE2 = 6;
-const int IN1 = 8;
-const int IN2 = 9;
+const int GND_PIN = 16;
+const int VCC_PIN = 17;
+const int ENB = 8;
+const int IN4 = 9;
 const int IN3 = 10;
-const int IN4 = 11;
+const int IN2 = 11;
+const int IN1 = 12;
+const int ENA = 13;
 
-const int ENCODER1_A = 22;
-const int ENCODER1_B = 24;
-const int ENCODER2_A = 26;
-const int ENCODER2_B = 28;
+const int ENCODER1_A = 18;
+const int ENCODER1_B = 19;
+const int ENCODER2_A = 20;
+const int ENCODER2_B = 21;
 const float ENCODER_COUNTS_PER_REV = 720.0f;
 
 const int DEFAULT_DRIVE_PERCENT = 100;
@@ -87,9 +87,7 @@ const int8_t QUADRATURE_TABLE[16] = {
 void blinkLed(int times) {
   for (int i = 0; i < times; i++) {
     digitalWrite(LED_PIN, HIGH);
-    delay(80);
     digitalWrite(LED_PIN, LOW);
-    delay(80);
   }
 }
 
@@ -123,21 +121,25 @@ void setMotor2Direction(bool invertedBackward) {
 void applyMotor1Pwm(bool forward, int pwm) {
   pwm = constrain(pwm, 0, 255);
   if (pwm == 0) {
-    analogWrite(ENABLE1, 0);
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    analogWrite(ENA, 255);
     return;
   }
   setMotor1Direction(forward);
-  analogWrite(ENABLE1, pwm);
+  analogWrite(ENA, pwm);
 }
 
 void applyMotor2Pwm(bool forward, int pwm) {
   pwm = constrain(pwm, 0, 255);
   if (pwm == 0) {
-    analogWrite(ENABLE2, 0);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
+    analogWrite(ENB, 255);
     return;
   }
   setMotor2Direction(forward);
-  analogWrite(ENABLE2, pwm);
+  analogWrite(ENB, pwm);
 }
 
 float rpmFromCounts(long counts, float elapsedMs) {
@@ -189,21 +191,28 @@ void setDriveTargets(DriveMode mode, int percent) {
   }
 }
 
-int computeMotorPwm(MotorController& motor, float elapsedSec) {
+int computeMotorPwm(MotorController& motor, float elapsedSec, bool& outForward) {
   if (fabs(motor.targetRpm) < 0.5f) {
     motor.integral = 0.0f;
-    motor.lastError = 0.0f;
+    motor.lastError = motor.measuredRpm;
     motor.pwm = 0;
+    outForward = true;
     return 0;
   }
 
   float error = motor.targetRpm - motor.measuredRpm;
   motor.integral += error * elapsedSec;
   motor.integral = constrain(motor.integral, -80.0f, 80.0f);
-  float derivative = (elapsedSec > 0.0f) ? ((error - motor.lastError) / elapsedSec) : 0.0f;
-  motor.lastError = error;
 
-  float output = (PID_KP * error) + (PID_KI * motor.integral) + (PID_KD * derivative);
+  float derivative = (elapsedSec > 0.0f) ? -((motor.measuredRpm - motor.lastError) / elapsedSec) : 0.0f;
+  motor.lastError = motor.measuredRpm;
+
+  float feedForward = (motor.targetRpm / MAX_MOTOR_RPM) * 255.0f;
+
+  float output = feedForward + (PID_KP * error) + (PID_KI * motor.integral) + (PID_KD * derivative);
+
+  outForward = (output >= 0.0f);
+
   int pwm = (int)round(fabs(output));
   if (pwm > 0 && pwm < MIN_DRIVE_PWM) {
     pwm = MIN_DRIVE_PWM;
@@ -216,8 +225,8 @@ void stopDriveMotors() {
   setDriveTargets(DRIVE_STOP, 0);
   resetMotorController(motor1);
   resetMotorController(motor2);
-  analogWrite(ENABLE1, 0);
-  analogWrite(ENABLE2, 0);
+  applyMotor1Pwm(true, 0);
+  applyMotor2Pwm(true, 0);
 }
 
 void driveForward(int percent) {
@@ -240,8 +249,6 @@ void updateDriveControl() {
   unsigned long now = millis();
   if (lastDriveControlMs == 0) {
     lastDriveControlMs = now;
-    encoder1LastState = (digitalRead(ENCODER1_A) << 1) | digitalRead(ENCODER1_B);
-    encoder2LastState = (digitalRead(ENCODER2_A) << 1) | digitalRead(ENCODER2_B);
     return;
   }
 
@@ -249,9 +256,6 @@ void updateDriveControl() {
   if (elapsedMs < (float)DRIVE_CONTROL_INTERVAL_MS) {
     return;
   }
-
-  readQuadratureEncoder(ENCODER1_A, ENCODER1_B, encoder1LastState, encoder1Count);
-  readQuadratureEncoder(ENCODER2_A, ENCODER2_B, encoder2LastState, encoder2Count);
 
   noInterrupts();
   long counts1 = encoder1Count;
@@ -264,11 +268,13 @@ void updateDriveControl() {
   motor2.measuredRpm = rpmFromCounts(counts2, elapsedMs);
 
   float elapsedSec = elapsedMs / 1000.0f;
-  int pwm1 = computeMotorPwm(motor1, elapsedSec);
-  int pwm2 = computeMotorPwm(motor2, elapsedSec);
 
-  applyMotor1Pwm(motor1.targetRpm >= 0.0f, pwm1);
-  applyMotor2Pwm(motor2.targetRpm >= 0.0f, pwm2);
+  bool dir1, dir2;
+  int pwm1 = computeMotorPwm(motor1, elapsedSec, dir1);
+  int pwm2 = computeMotorPwm(motor2, elapsedSec, dir2);
+
+  applyMotor1Pwm(dir1, pwm1);
+  applyMotor2Pwm(dir2, pwm2);
 
   lastDriveControlMs = now;
 }
@@ -497,8 +503,8 @@ void tickForkMotor() {
 void setupDriveMotors() {
   pinMode(GND_PIN, OUTPUT);
   pinMode(VCC_PIN, OUTPUT);
-  pinMode(ENABLE1, OUTPUT);
-  pinMode(ENABLE2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
@@ -529,6 +535,9 @@ void setup() {
 }
 
 void loop() {
+  readQuadratureEncoder(ENCODER1_A, ENCODER1_B, encoder1LastState, encoder1Count);
+  readQuadratureEncoder(ENCODER2_A, ENCODER2_B, encoder2LastState, encoder2Count);
+
   processSerialInput();
   tickForkMotor();
   updateDriveControl();
