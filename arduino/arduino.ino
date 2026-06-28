@@ -1,17 +1,15 @@
-#include <Stepper.h>
-
 const int LED_PIN = LED_BUILTIN;
 const unsigned long TELEMETRY_INTERVAL_MS = 1000;
 const unsigned long DRIVE_CONTROL_INTERVAL_MS = 50;
 
-const int FORK_IN1 = 12;
-const int FORK_IN2 = 13;
-const int FORK_IN3 = 14;
-const int FORK_IN4 = 15;
+const int FORK_ENABLE = 5;
+const int FORK_DIR = 6;
+const int FORK_STEP = 7;
 const int FORK_STEPS_PER_REV = 200;
 const int FORK_RPM = 80;
 const long FORK_STEPS_MIN = 0;
 const long FORK_STEPS_MAX = 4000;
+const unsigned long FORK_STEP_INTERVAL_US = 60000000UL / (FORK_RPM * FORK_STEPS_PER_REV);
 
 const int GND_PIN = 16;
 const int VCC_PIN = 17;
@@ -51,8 +49,6 @@ struct MotorController {
   int pwm;
 };
 
-Stepper forkMotor(FORK_STEPS_PER_REV, FORK_IN1, FORK_IN2, FORK_IN3, FORK_IN4);
-
 String inputBuffer;
 bool autonomous = false;
 unsigned long bootMs = 0;
@@ -62,6 +58,7 @@ unsigned long telemetryTick = 0;
 int fsmIndex = 0;
 int forkDir = 0;
 long forkSteps = 2000;
+unsigned long lastForkStepUs = 0;
 DriveMode driveMode = DRIVE_STOP;
 int drivePercent = DEFAULT_DRIVE_PERCENT;
 
@@ -404,6 +401,7 @@ void handleCommand(String line) {
   if (line == "S") {
     stopDriveMotors();
     forkDir = 0;
+    disableForkMotor();
     sendOk("S");
     blinkLed(1);
     return;
@@ -481,23 +479,49 @@ void processSerialInput() {
   }
 }
 
+void disableForkMotor() {
+  digitalWrite(FORK_ENABLE, HIGH);
+}
+
 void tickForkMotor() {
   if (forkDir == 0) {
+    disableForkMotor();
     return;
   }
 
   if (forkDir > 0 && forkSteps >= FORK_STEPS_MAX) {
     forkDir = 0;
+    disableForkMotor();
     return;
   }
 
   if (forkDir < 0 && forkSteps <= FORK_STEPS_MIN) {
     forkDir = 0;
+    disableForkMotor();
     return;
   }
 
-  forkMotor.step(forkDir);
+  digitalWrite(FORK_ENABLE, LOW);
+  digitalWrite(FORK_DIR, forkDir > 0 ? HIGH : LOW);
+
+  unsigned long now = micros();
+  if (lastForkStepUs != 0 && (now - lastForkStepUs) < FORK_STEP_INTERVAL_US) {
+    return;
+  }
+  lastForkStepUs = now;
+
+  digitalWrite(FORK_STEP, HIGH);
+  digitalWrite(FORK_STEP, LOW);
   forkSteps += forkDir;
+}
+
+void setupForkMotor() {
+  pinMode(FORK_ENABLE, OUTPUT);
+  pinMode(FORK_DIR, OUTPUT);
+  pinMode(FORK_STEP, OUTPUT);
+  digitalWrite(FORK_STEP, LOW);
+  digitalWrite(FORK_DIR, LOW);
+  disableForkMotor();
 }
 
 void setupDriveMotors() {
@@ -527,7 +551,7 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   Serial.begin(115200);
   inputBuffer.reserve(48);
-  forkMotor.setSpeed(FORK_RPM);
+  setupForkMotor();
   setupDriveMotors();
   bootMs = millis();
   lastTelemetryMs = bootMs;
