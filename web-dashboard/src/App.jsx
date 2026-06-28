@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Activity, Bot, LayoutDashboard, Trash2, Video } from "lucide-react";
+import { AutonomousModeModal } from "./components/AutonomousModeModal.jsx";
 import { CommandPanel } from "./components/CommandPanel.jsx";
 import { ConnectionNetworkCard } from "./components/ConnectionNetworkCard.jsx";
 import { ConnectionStreamCard } from "./components/ConnectionStreamCard.jsx";
@@ -9,7 +10,12 @@ import { CameraFeed } from "./components/CameraFeed.jsx";
 import { HeaderConnectionStatus } from "./components/HeaderConnectionStatus.jsx";
 import { MessageLog } from "./components/MessageLog.jsx";
 import { TelemetryDashboard } from "./components/TelemetryDashboard.jsx";
-import { OFFLINE_TELEMETRY, telemetryFromWebSocketMessage } from "./lib/telemetry.js";
+import {
+  OFFLINE_AUTONOMY,
+  OFFLINE_TELEMETRY,
+  autonomyFromWebSocketMessage,
+  telemetryFromWebSocketMessage,
+} from "./lib/telemetry.js";
 import { createCommandMessage, createWebSocketUrl } from "./services/websocket.js";
 
 const savedIp = localStorage.getItem("raspberry_ip") ?? "";
@@ -34,7 +40,7 @@ export function App() {
   const [ip, setIp] = useState(savedIp);
   const [status, setStatus] = useState("disconnected");
   const [logs, setLogs] = useState([]);
-  const [autonomousMode, setAutonomousMode] = useState(false);
+  const [autonomy, setAutonomy] = useState(OFFLINE_AUTONOMY);
   const [activeTab, setActiveTab] = useState("operation");
   const [handshakeMs, setHandshakeMs] = useState(null);
   const [firstResponseMs, setFirstResponseMs] = useState(null);
@@ -42,6 +48,7 @@ export function App() {
   const [telemetry, setTelemetry] = useState(OFFLINE_TELEMETRY);
 
   const isConnected = status === "connected";
+  const autonomousMode = autonomy.enabled;
   const statusLabel = useMemo(() => {
     const labels = {
       disconnected: "Desconectado",
@@ -74,7 +81,7 @@ export function App() {
   }, []);
 
   const disconnect = useCallback(() => {
-    setAutonomousMode(false);
+    setAutonomy(OFFLINE_AUTONOMY);
     setTelemetry(OFFLINE_TELEMETRY);
     resetLatency();
     socketRef.current?.close();
@@ -126,6 +133,10 @@ export function App() {
           setTelemetry(telemetryFromWebSocketMessage(parsed));
           return;
         }
+        if (parsed.type === "autonomy") {
+          setAutonomy(autonomyFromWebSocketMessage(parsed));
+          return;
+        }
         if (parsed.type === "vision") {
           const tags = Array.isArray(parsed.tags) ? parsed.tags : [];
           const primary = tags[0];
@@ -149,6 +160,17 @@ export function App() {
           }
           return;
         }
+        if (parsed.type === "ack") {
+          addLog(`Confirmado: ${parsed.received_action ?? "comando"} — ${parsed.detail ?? ""}`, "success");
+          return;
+        }
+        if (parsed.type === "error") {
+          addLog(
+            `Erro (${parsed.received_action ?? "?"}): ${parsed.detail ?? "Falha no comando."}`,
+            "error",
+          );
+          return;
+        }
       } catch {
         /* não é JSON de telemetria */
       }
@@ -161,7 +183,7 @@ export function App() {
 
     socket.addEventListener("close", () => {
       setStatus("disconnected");
-      setAutonomousMode(false);
+      setAutonomy(OFFLINE_AUTONOMY);
       setTelemetry(OFFLINE_TELEMETRY);
       resetLatency();
       addLog("Conexão encerrada.");
@@ -212,12 +234,6 @@ export function App() {
       pendingRttRef.current = performance.now();
       socket.send(JSON.stringify(message));
       addLog(`Enviado: ${JSON.stringify(message)}`, "outgoing");
-      if (action === "start_autonomous_mode") {
-        setAutonomousMode(true);
-      }
-      if (action === "stop_autonomous_mode") {
-        setAutonomousMode(false);
-      }
     },
     [addLog],
   );
@@ -282,7 +298,7 @@ export function App() {
           id="panel-operation"
         >
           <div
-            className="dashboard-grid dashboard-grid--operation"
+            className={`dashboard-grid dashboard-grid--operation ${autonomousMode ? "dashboard-grid--autonomy" : ""}`}
             style={
               controlsPanelHeight
                 ? { "--operation-controls-height": `${controlsPanelHeight}px` }
@@ -313,6 +329,7 @@ export function App() {
                 disabled={!isConnected}
                 onCommand={sendCommand}
                 autonomousActive={autonomousMode}
+                manualControlAllowed={autonomy.manualControlAllowed}
               />
             </div>
 
@@ -369,6 +386,7 @@ export function App() {
               </div>
             </section>
           </div>
+
         </div>
       ) : (
         <div
@@ -379,7 +397,7 @@ export function App() {
         >
           <TelemetryDashboard
             telemetry={telemetry}
-            autonomousMode={autonomousMode}
+            autonomy={autonomy}
             connected={isConnected}
             status={status}
             handshakeMs={handshakeMs}
@@ -388,6 +406,11 @@ export function App() {
           />
         </div>
       )}
+      <AutonomousModeModal
+        autonomy={autonomy}
+        disabled={!isConnected}
+        onCommand={sendCommand}
+      />
     </div>
   );
 }

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
 const FSM_STATES = [
+  "OFF",
   "IDLE",
-  "SCAN_TAGS",
-  "NAV_TO_WAYPOINT",
-  "ALIGN_FORK",
-  "LIFT_PALLET",
-  "TRANSPORT",
-  "DROP_PALLET",
+  "SCAN_TAG_1",
+  "NAV_TO_TAG_1",
+  "MANUAL_PALLETIZE",
+  "SCAN_TAG_2",
+  "NAV_TO_TAG_2",
+  "MANUAL_DEPALLETIZE",
 ];
 
 const OFFLINE_TELEMETRY = {
@@ -141,7 +142,7 @@ export function useMockTelemetry(isActive, autonomousMode) {
             aprilTagId = pick([0, 1, 2, 7, 12, 24, 36]);
             aprilTagDistanceM = clamp(0.35 + Math.random() * 1.8, 0.2, 3);
           }
-          if (fsmState === "SCAN_TAGS" && !aprilTagDetected) {
+          if (fsmState.startsWith("SCAN_TAG") && !aprilTagDetected) {
             alerts.push("Buscando AprilTag no campo de visão…");
           }
         }

@@ -1,13 +1,14 @@
 import math
 
 FSM_STATES = [
+    "OFF",
     "IDLE",
-    "SCAN_TAGS",
-    "NAV_TO_WAYPOINT",
-    "ALIGN_FORK",
-    "LIFT_PALLET",
-    "TRANSPORT",
-    "DROP_PALLET",
+    "SCAN_TAG_1",
+    "NAV_TO_TAG_1",
+    "MANUAL_PALLETIZE",
+    "SCAN_TAG_2",
+    "NAV_TO_TAG_2",
+    "MANUAL_DEPALLETIZE",
 ]
 
 
@@ -125,7 +126,7 @@ def build_simulated_telemetry_line(tick: int, autonomous: bool = False) -> str:
             tag = 1
             tid = [0, 1, 2, 7, 12, 24, 36][t % 7]
             tdist = 0.55 + (t % 10) * 0.12
-        if fsm == "SCAN_TAGS" and tag == 0:
+        if fsm.startswith("SCAN_TAG") and tag == 0:
             alt = "Buscando AprilTag no campo de visão…"
 
     if tl > 62 or tr > 60:

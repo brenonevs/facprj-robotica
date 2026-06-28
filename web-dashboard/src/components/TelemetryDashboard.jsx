@@ -1,4 +1,5 @@
 import { TelemetryLatencySection } from "./TelemetryLatencySection.jsx";
+import { FSM_STATE_LABELS } from "../lib/telemetry.js";
 import {
   Activity,
   AlertTriangle,
@@ -96,7 +97,7 @@ function TempBar({ label, celsius }) {
 
 export function TelemetryDashboard({
   telemetry,
-  autonomousMode,
+  autonomy,
   connected,
   status,
   handshakeMs,
@@ -132,6 +133,7 @@ export function TelemetryDashboard({
     );
   }
 
+  const autonomousMode = autonomy.enabled;
   const { position, alerts, errors } = telemetry;
 
   return (
@@ -205,7 +207,9 @@ export function TelemetryDashboard({
                   <Workflow size={16} />
                   <span>Máquina de estados</span>
                 </div>
-                <p className="telemetry-fsm">{telemetry.fsmState}</p>
+                <p className="telemetry-fsm">
+                  {FSM_STATE_LABELS[autonomy.fsmState] ?? autonomy.fsmState}
+                </p>
               </div>
             </div>
           ) : null}

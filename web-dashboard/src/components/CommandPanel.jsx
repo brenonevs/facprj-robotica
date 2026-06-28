@@ -4,14 +4,12 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Bot,
   ChevronsUp,
   ChevronsDown,
-  Bot,
-  XCircle,
   Gamepad2,
   Square,
 } from "lucide-react";
-
 const HOLD_REPEAT_MS = 180;
 
 const HOLD_ACTIONS = new Set([
@@ -31,9 +29,11 @@ const commands = {
   move_backward: { label: "Trás", icon: ArrowDown },
 };
 
-export function CommandPanel({ disabled, onCommand, autonomousActive }) {
+export function CommandPanel({ disabled, onCommand, autonomousActive, manualControlAllowed }) {
   const holdIntervalRef = useRef(null);
   const heldActionRef = useRef(null);
+  const manualBlocked = autonomousActive && !manualControlAllowed;
+  const controlsDisabled = disabled || manualBlocked;
 
   const clearHold = useCallback(() => {
     if (holdIntervalRef.current != null) {
@@ -49,10 +49,10 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
   }, [onCommand]);
 
   useEffect(() => {
-    if (disabled) {
+    if (controlsDisabled) {
       clearHold();
     }
-  }, [disabled, clearHold]);
+  }, [controlsDisabled, clearHold]);
 
   useEffect(() => {
     const onHidden = () => {
@@ -66,7 +66,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
 
   const startHold = useCallback(
     (action) => (event) => {
-      if (disabled || !HOLD_ACTIONS.has(action)) return;
+      if (controlsDisabled || !HOLD_ACTIONS.has(action)) return;
       if (event.pointerType === "mouse" && event.button !== 0) return;
       if (heldActionRef.current != null) return;
       event.preventDefault();
@@ -79,7 +79,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
         //
       }
     },
-    [disabled, onCommand],
+    [controlsDisabled, onCommand],
   );
 
   const endHold = useCallback(
@@ -108,11 +108,11 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
       </div>
 
       <div className="card-body">
-        <div className={`dpad ${disabled ? "dpad--disabled" : ""}`}>
+        <div className={`dpad ${controlsDisabled ? "dpad--disabled" : ""}`}>
           <button
             className="dpad-btn dpad-btn--up"
             type="button"
-            disabled={disabled}
+            disabled={controlsDisabled}
             onPointerDown={startHold("move_forward")}
             onPointerUp={endHold}
             onPointerCancel={endHold}
@@ -125,7 +125,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
           <button
             className="dpad-btn dpad-btn--left"
             type="button"
-            disabled={disabled}
+            disabled={controlsDisabled}
             onPointerDown={startHold("turn_left")}
             onPointerUp={endHold}
             onPointerCancel={endHold}
@@ -148,7 +148,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
           <button
             className="dpad-btn dpad-btn--right"
             type="button"
-            disabled={disabled}
+            disabled={controlsDisabled}
             onPointerDown={startHold("turn_right")}
             onPointerUp={endHold}
             onPointerCancel={endHold}
@@ -161,7 +161,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
           <button
             className="dpad-btn dpad-btn--down"
             type="button"
-            disabled={disabled}
+            disabled={controlsDisabled}
             onPointerDown={startHold("move_backward")}
             onPointerUp={endHold}
             onPointerCancel={endHold}
@@ -179,7 +179,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
               <button
                 className="btn btn-secondary"
                 type="button"
-                disabled={disabled}
+                disabled={controlsDisabled}
                 onPointerDown={startHold("fork_up")}
                 onPointerUp={endHold}
                 onPointerCancel={endHold}
@@ -191,7 +191,7 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
               <button
                 className="btn btn-secondary"
                 type="button"
-                disabled={disabled}
+                disabled={controlsDisabled}
                 onPointerDown={startHold("fork_down")}
                 onPointerUp={endHold}
                 onPointerCancel={endHold}
@@ -203,36 +203,35 @@ export function CommandPanel({ disabled, onCommand, autonomousActive }) {
             </div>
           </div>
 
-          <div className="extra-controls-group">
-            <span className="card-kicker">Autonomia</span>
-            {autonomousActive ? (
+          {!autonomousActive ? (
+            <div className="extra-controls-group">
+              <span className="card-kicker">Autonomia</span>
               <button
-                className="btn btn-danger btn-full"
-                type="button"
-                disabled={disabled}
-                onClick={() => onCommand("stop_autonomous_mode")}
-              >
-                <XCircle size={18} />
-                Parar modo autônomo
-              </button>
-            ) : (
-              <button
-                className="btn btn-autonomous"
+                className="btn btn-autonomous btn-full"
                 type="button"
                 disabled={disabled}
                 onClick={() => onCommand("start_autonomous_mode")}
               >
                 <Bot size={18} />
-                Iniciar modo autônomo
+                Modo Autônomo
               </button>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
-
         {!disabled ? (
-          <p className="card-hint card-hint--center">
-            Mantenha pressionado direção ou garfo para repetir o comando; ao soltar, envia parar.
-          </p>
+          manualBlocked ? (
+            <p className="card-hint card-hint--center card-hint--muted">
+              Controles manuais bloqueados durante navegação autônoma.
+            </p>
+          ) : autonomousActive && manualControlAllowed ? (
+            <p className="card-hint card-hint--center">
+              Controle manual disponível para paletização ou despaletização.
+            </p>
+          ) : (
+            <p className="card-hint card-hint--center">
+              Mantenha pressionado direção ou garfo para repetir o comando; ao soltar, envia parar.
+            </p>
+          )
         ) : (
           <p className="card-hint card-hint--center card-hint--muted">
             Conecte ao Raspberry Pi para habilitar os comandos.

@@ -6,6 +6,7 @@ from datetime import datetime
 from websockets.asyncio.server import ServerConnection, serve
 
 from arduino_bridge import bridge
+from autonomy import AUTONOMY_ACTIONS, autonomy_controller
 from telemetry_parser import parse_telemetry_line
 from vision import vision_service
 
@@ -56,6 +57,10 @@ async def broadcast_telemetry(payload: dict) -> None:
     await broadcast_payload("telemetry", payload)
 
 
+async def broadcast_autonomy(payload: dict) -> None:
+    await broadcast_payload("autonomy", payload)
+
+
 async def telemetry_forward_loop() -> None:
     queue = bridge.get_line_queue()
     if queue is None:
@@ -68,6 +73,7 @@ async def telemetry_forward_loop() -> None:
         if payload is None:
             print(f"[telemetry] Linha inválida do Arduino: {line}")
             continue
+        payload["fsmState"] = autonomy_controller.fsm_state
         clients = len(connected_clients)
         print(f"[telemetry] Arduino → Pi ({clients} cliente(s) WS): {line}")
         await broadcast_telemetry(payload)
@@ -104,6 +110,7 @@ async def handle_client(websocket: ServerConnection) -> None:
 
     try:
         await send_status(websocket, "connected", "Conexão WebSocket estabelecida com o Raspberry Pi.")
+        await websocket.send(json_message("autonomy", **autonomy_controller.build_payload()))
 
         async for raw_message in websocket:
             print(f"Mensagem recebida de {client}: {raw_message}")
@@ -115,6 +122,41 @@ async def handle_client(websocket: ServerConnection) -> None:
                 continue
 
             action = message.get("action", "unknown")
+
+            if action in AUTONOMY_ACTIONS:
+                ok, detail = await autonomy_controller.handle_action(action)
+                if not ok:
+                    await websocket.send(
+                        json_message(
+                            "error",
+                            received_action=action,
+                            detail=detail or "Falha ao processar comando de autonomia.",
+                            arduino_connected=bridge.connected,
+                        )
+                    )
+                    continue
+                await websocket.send(
+                    json_message(
+                        "ack",
+                        received_action=action,
+                        received_message=message,
+                        arduino_response=detail,
+                        arduino_connected=bridge.connected,
+                        detail=detail or "Comando de autonomia processado.",
+                    )
+                )
+                continue
+
+            if autonomy_controller.manual_motor_blocked() and action != "stop":
+                await websocket.send(
+                    json_message(
+                        "error",
+                        received_action=action,
+                        detail="Comando manual bloqueado durante navegação autônoma.",
+                        arduino_connected=bridge.connected,
+                    )
+                )
+                continue
 
             ok, arduino_detail = await asyncio.to_thread(bridge.send_action, action)
 
@@ -145,6 +187,8 @@ async def handle_client(websocket: ServerConnection) -> None:
     finally:
         connected_clients.discard(websocket)
         print(f"Cliente desconectado: {client}")
+        if not connected_clients:
+            await autonomy_controller.on_client_disconnect()
 
 
 async def main() -> None:
@@ -153,10 +197,22 @@ async def main() -> None:
         bridge.start(loop)
     except RuntimeError as error:
         print(f"[arduino] Aviso: {error}")
-        print("[arduino] Comandos WebSocket retornarão erro até a serial estar disponível.")
-        print("[arduino] Use ARDUINO_SIMULATE=1 para desenvolver sem hardware.")
+        if not bridge.simulate:
+            print("[arduino] Tentando modo simulado automaticamente...")
+            ok, detail = bridge.set_simulate(True)
+            if ok:
+                print(f"[arduino] {detail}")
+            else:
+                print("[arduino] Comandos WebSocket retornarão erro até a serial estar disponível.")
+                print("[arduino] PowerShell: $env:ARDUINO_SIMULATE='1'; python server.py")
+        else:
+            print("[arduino] Comandos WebSocket retornarão erro até a serial estar disponível.")
+            print("[arduino] PowerShell: $env:ARDUINO_SIMULATE='1'; python server.py")
 
     vision_service.start(HOST, CAMERA_PORT)
+
+    autonomy_controller.set_broadcast(broadcast_autonomy)
+    autonomy_controller.start_loop()
 
     telemetry_task = asyncio.create_task(telemetry_forward_loop())
     vision_task = asyncio.create_task(vision_broadcast_loop())
@@ -170,6 +226,7 @@ async def main() -> None:
     finally:
         telemetry_task.cancel()
         vision_task.cancel()
+        await autonomy_controller.stop_loop()
         vision_service.stop()
         bridge.stop()
 
