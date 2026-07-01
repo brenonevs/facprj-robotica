@@ -8,6 +8,7 @@ import {
   Package,
   XCircle,
 } from "lucide-react";
+import { CameraFeed } from "./CameraFeed.jsx";
 import { FSM_STATE_LABELS } from "../lib/telemetry.js";
 
 const STEPS = [
@@ -26,7 +27,7 @@ function formatDistance(value) {
   return `${Number(value).toFixed(2)} m`;
 }
 
-export function AutonomousModeModal({ autonomy, disabled, onCommand }) {
+export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connected }) {
   const { enabled, fsmState, targetTagId, targetDistanceM, currentDistanceM, manualControlAllowed, cycleStep, alert } =
     autonomy;
 
@@ -60,51 +61,59 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand }) {
           <span className="autonomy-modal-state">{stateLabel}</span>
         </header>
 
-        <div className="autonomy-stepper">
-          {STEPS.map((step) => {
-            const Icon = step.icon;
-            const isActive = cycleStep === step.key;
-            const isDone = cycleStep > step.key;
-            return (
-              <div
-                key={step.key}
-                className={`autonomy-step ${isActive ? "autonomy-step--active" : ""} ${isDone ? "autonomy-step--done" : ""}`}
-              >
-                <div className="autonomy-step-marker">
-                  <Icon size={14} strokeWidth={2.2} />
-                </div>
-                <span className="autonomy-step-label">{step.label}</span>
+        <div className="autonomy-modal-body">
+          <div className="autonomy-modal-camera">
+            <CameraFeed ip={ip} connected={connected} autonomousMode />
+          </div>
+
+          <div className="autonomy-modal-panel">
+            <div className="autonomy-stepper">
+              {STEPS.map((step) => {
+                const Icon = step.icon;
+                const isActive = cycleStep === step.key;
+                const isDone = cycleStep > step.key;
+                return (
+                  <div
+                    key={step.key}
+                    className={`autonomy-step ${isActive ? "autonomy-step--active" : ""} ${isDone ? "autonomy-step--done" : ""}`}
+                  >
+                    <div className="autonomy-step-marker">
+                      <Icon size={14} strokeWidth={2.2} />
+                    </div>
+                    <span className="autonomy-step-label">{step.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="autonomy-modal-metrics">
+              <div className="autonomy-metric">
+                <span className="autonomy-metric-k">Tag alvo</span>
+                <span className="autonomy-metric-v">{targetTagId != null ? `#${targetTagId}` : "—"}</span>
               </div>
-            );
-          })}
+              <div className="autonomy-metric">
+                <span className="autonomy-metric-k">Distância atual</span>
+                <span className="autonomy-metric-v">{formatDistance(currentDistanceM)}</span>
+              </div>
+              <div className="autonomy-metric">
+                <span className="autonomy-metric-k">Distância alvo</span>
+                <span className="autonomy-metric-v">{formatDistance(targetDistanceM)}</span>
+              </div>
+            </div>
+
+            {alert ? <p className="autonomy-modal-alert">{alert}</p> : null}
+
+            {!manualControlAllowed && fsmState !== "IDLE" ? (
+              <p className="autonomy-modal-hint">Controles manuais bloqueados durante navegação autônoma.</p>
+            ) : null}
+
+            {manualControlAllowed ? (
+              <p className="autonomy-modal-hint autonomy-modal-hint--ok">
+                Controles manuais disponíveis para esta etapa.
+              </p>
+            ) : null}
+          </div>
         </div>
-
-        <div className="autonomy-modal-metrics">
-          <div className="autonomy-metric">
-            <span className="autonomy-metric-k">Tag alvo</span>
-            <span className="autonomy-metric-v">{targetTagId != null ? `#${targetTagId}` : "—"}</span>
-          </div>
-          <div className="autonomy-metric">
-            <span className="autonomy-metric-k">Distância atual</span>
-            <span className="autonomy-metric-v">{formatDistance(currentDistanceM)}</span>
-          </div>
-          <div className="autonomy-metric">
-            <span className="autonomy-metric-k">Distância alvo</span>
-            <span className="autonomy-metric-v">{formatDistance(targetDistanceM)}</span>
-          </div>
-        </div>
-
-        {alert ? <p className="autonomy-modal-alert">{alert}</p> : null}
-
-        {!manualControlAllowed && fsmState !== "IDLE" ? (
-          <p className="autonomy-modal-hint">Controles manuais bloqueados durante navegação autônoma.</p>
-        ) : null}
-
-        {manualControlAllowed ? (
-          <p className="autonomy-modal-hint autonomy-modal-hint--ok">
-            Controles manuais disponíveis para esta etapa.
-          </p>
-        ) : null}
 
         <div className="autonomy-modal-actions">
           {showStart ? (

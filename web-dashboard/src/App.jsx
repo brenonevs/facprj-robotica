@@ -410,6 +410,8 @@ export function App() {
         autonomy={autonomy}
         disabled={!isConnected}
         onCommand={sendCommand}
+        ip={ip}
+        connected={isConnected}
       />
     </div>
   );

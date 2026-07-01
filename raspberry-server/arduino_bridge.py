@@ -8,8 +8,8 @@ from telemetry_parser import build_simulated_telemetry_line
 
 ACTION_TO_LINE = {
     "stop": "S",
-    "move_forward": "M F",
-    "move_backward": "M B",
+    "move_forward": "M B",
+    "move_backward": "M F",
     "turn_left": "M L",
     "turn_right": "M R",
     "fork_up": "F U",

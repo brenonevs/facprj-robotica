@@ -1806,15 +1806,17 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 16px;
   background: rgba(6, 10, 18, 0.72);
   backdrop-filter: blur(6px);
 }
 
 .autonomy-modal {
-  width: min(520px, 100%);
-  max-height: min(90vh, 720px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  width: min(580px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
   border: 1px solid rgba(45, 212, 191, 0.35);
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(10, 15, 28, 0.98) 100%);
@@ -1826,7 +1828,8 @@ input {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 20px 20px 12px;
+  flex-shrink: 0;
+  padding: 16px 20px 12px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -1858,18 +1861,54 @@ input {
   font-weight: 600;
 }
 
+.autonomy-modal-camera {
+  flex-shrink: 0;
+  display: flex;
+  padding: 0;
+}
+
+.autonomy-modal-camera .camera-feed {
+  width: 100%;
+  display: flex;
+}
+
+.autonomy-modal-camera .camera-feed-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  max-height: min(24vh, 200px);
+}
+
+.autonomy-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 20px 10px;
+  overflow: hidden;
+}
+
+.autonomy-modal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex-shrink: 0;
+}
+
 .autonomy-stepper {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 16px 20px;
+  gap: 8px;
+  padding: 0;
 }
 
 .autonomy-step {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   text-align: center;
 }
 
@@ -1877,8 +1916,8 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-inset);
@@ -1912,12 +1951,12 @@ input {
 .autonomy-modal-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 0 20px 16px;
+  gap: 8px;
+  padding: 0;
 }
 
 .autonomy-metric {
-  padding: 12px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-inset);
@@ -1937,20 +1976,21 @@ input {
 }
 
 .autonomy-modal-alert {
-  margin: 0 20px 12px;
-  padding: 10px 12px;
+  margin: 0;
+  padding: 8px 10px;
   border-radius: var(--radius-md);
   border: 1px solid rgba(251, 191, 36, 0.35);
   background: rgba(251, 191, 36, 0.1);
   color: #fcd34d;
-  font-size: 0.84rem;
+  font-size: 0.8rem;
 }
 
 .autonomy-modal-hint {
-  margin: 0 20px 12px;
-  font-size: 0.82rem;
+  margin: 0;
+  font-size: 0.78rem;
   color: var(--text-muted);
   text-align: center;
+  line-height: 1.35;
 }
 
 .autonomy-modal-hint--ok {
@@ -1958,13 +1998,31 @@ input {
 }
 
 .autonomy-modal-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 8px 20px 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 0 20px 14px;
+}
+
+.autonomy-modal-actions:has(:only-child) {
+  grid-template-columns: 1fr;
 }
 
 @media (max-width: 640px) {
+  .autonomy-modal-body {
+    padding: 10px 16px 8px;
+  }
+
+  .autonomy-modal-camera .camera-feed-frame {
+    max-height: min(22vh, 180px);
+  }
+
+  .autonomy-modal-actions {
+    grid-template-columns: 1fr;
+    padding: 0 16px 12px;
+  }
+
   .autonomy-stepper {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
