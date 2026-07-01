@@ -65,6 +65,9 @@ CYCLE_STEP_TOTAL = 6
 
 NAV_LOST_TAG_TICKS = 15
 
+SCAN_ROTATE_PHASE_WAIT = "wait"
+SCAN_ROTATE_PHASE_TURN = "turn"
+
 
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
@@ -91,6 +94,8 @@ class AutonomyController:
         self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.8)
         self.yaw_threshold_deg = _env_float("AUTONOMY_YAW_THRESHOLD_DEG", 8.0)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
+        self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 1.5)
+        self.scan_rotate_duration_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.35)
         self.loop_hz = _env_int("AUTONOMY_LOOP_HZ", 10)
         self._fsm_state = FSM_OFF
         self._first_tag_id: int | None = None
@@ -98,6 +103,8 @@ class AutonomyController:
         self._current_distance_m: float | None = None
         self._alert: str | None = None
         self._scan_started_at: float | None = None
+        self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
+        self._scan_rotate_phase_at = 0.0
         self._nav_lost_tag_ticks = 0
         self._last_motor_action: str | None = None
         self._broadcast_fn: Callable[[dict], Awaitable[None]] | None = None
@@ -215,6 +222,7 @@ class AutonomyController:
         self._reset_cycle()
         self._fsm_state = FSM_SCAN_TAG_1
         self._scan_started_at = time.monotonic()
+        self._reset_scan_rotation()
         self._alert = None
         await self._ensure_stop()
         await self.broadcast_state(force=True)
@@ -227,6 +235,7 @@ class AutonomyController:
         self._current_distance_m = None
         self._fsm_state = FSM_SCAN_TAG_2
         self._scan_started_at = time.monotonic()
+        self._reset_scan_rotation()
         self._nav_lost_tag_ticks = 0
         self._alert = None
         await self._ensure_stop()
@@ -248,7 +257,12 @@ class AutonomyController:
         self._target_tag_id = None
         self._current_distance_m = None
         self._scan_started_at = None
+        self._reset_scan_rotation()
         self._nav_lost_tag_ticks = 0
+
+    def _reset_scan_rotation(self) -> None:
+        self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
+        self._scan_rotate_phase_at = time.monotonic()
 
     async def _ensure_stop(self) -> None:
         if self._last_motor_action == "stop":
@@ -335,6 +349,7 @@ class AutonomyController:
             self._fsm_state = next_state
             self._nav_lost_tag_ticks = 0
             self._scan_started_at = None
+            self._reset_scan_rotation()
             await self._ensure_stop()
             print(f"[autonomy] Tag #{tag_id} detectada → {next_state}")
             return
@@ -346,7 +361,24 @@ class AutonomyController:
                 await self._ensure_stop()
                 return
 
-        await self._send_motor("turn_left")
+        await self._tick_scan_rotation()
+
+    async def _tick_scan_rotation(self) -> None:
+        now = time.monotonic()
+
+        if self._scan_rotate_phase == SCAN_ROTATE_PHASE_WAIT:
+            await self._ensure_stop()
+            if now - self._scan_rotate_phase_at < self.scan_rotate_interval_s:
+                return
+            await self._send_motor("turn_left")
+            self._scan_rotate_phase = SCAN_ROTATE_PHASE_TURN
+            self._scan_rotate_phase_at = now
+            return
+
+        if now - self._scan_rotate_phase_at >= self.scan_rotate_duration_s:
+            await self._ensure_stop()
+            self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
+            self._scan_rotate_phase_at = now
 
     async def _tick_nav(self, tags: list[dict], *, rescan_state: str) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)
@@ -357,6 +389,7 @@ class AutonomyController:
                 self._alert = "AprilTag perdida — retomando busca."
                 self._fsm_state = rescan_state
                 self._scan_started_at = time.monotonic()
+                self._reset_scan_rotation()
                 self._nav_lost_tag_ticks = 0
                 await self._ensure_stop()
             else:
