@@ -63,6 +63,8 @@ CYCLE_STEP_BY_STATE = {
 
 CYCLE_STEP_TOTAL = 6
 
+NAV_LOST_TAG_TICKS_DEFAULT = 45
+
 SCAN_ROTATE_PHASE_WAIT = "wait"
 SCAN_ROTATE_PHASE_TURN = "turn"
 
@@ -91,7 +93,7 @@ class AutonomyController:
     def __init__(self) -> None:
         self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.15)
         self.yaw_threshold_deg = _env_float("AUTONOMY_YAW_THRESHOLD_DEG", 8.0)
-        self.tracking_yaw_threshold_deg = _env_float("AUTONOMY_TRACKING_YAW_THRESHOLD_DEG", 5.0)
+        self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
         self.scan_rotate_duration_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.6)
@@ -104,7 +106,7 @@ class AutonomyController:
         self._scan_started_at: float | None = None
         self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
         self._scan_rotate_phase_at = 0.0
-        self._nav_last_yaw_deg: float | None = None
+        self._nav_lost_tag_ticks = 0
         self._nav_recovery_action: str | None = None
         self._last_motor_action: str | None = None
         self._broadcast_fn: Callable[[dict], Awaitable[None]] | None = None
@@ -236,7 +238,7 @@ class AutonomyController:
         self._fsm_state = FSM_SCAN_TAG_2
         self._scan_started_at = time.monotonic()
         self._reset_scan_rotation()
-        self._nav_last_yaw_deg = None
+        self._nav_lost_tag_ticks = 0
         self._nav_recovery_action = None
         self._alert = None
         await self._ensure_stop()
@@ -259,7 +261,7 @@ class AutonomyController:
         self._current_distance_m = None
         self._scan_started_at = None
         self._reset_scan_rotation()
-        self._nav_last_yaw_deg = None
+        self._nav_lost_tag_ticks = 0
         self._nav_recovery_action = None
 
     def _reset_scan_rotation(self) -> None:
@@ -294,19 +296,15 @@ class AutonomyController:
                 return tag
         return None
 
-    def _turn_action_for_yaw(self, yaw_deg: float) -> str:
-        return "turn_right" if yaw_deg > 0 else "turn_left"
-
-    def _update_nav_recovery(self, *, yaw_deg: float) -> None:
-        self._nav_last_yaw_deg = yaw_deg
-        self._nav_recovery_action = self._turn_action_for_yaw(yaw_deg)
-
-    def _recovery_action_for_lost_tag(self) -> str:
-        if self._nav_last_yaw_deg is not None and abs(self._nav_last_yaw_deg) > 0.3:
-            return self._turn_action_for_yaw(self._nav_last_yaw_deg)
-        if self._nav_recovery_action in ("turn_left", "turn_right"):
-            return self._nav_recovery_action
-        return "turn_left"
+    def _update_nav_recovery(self, *, distance_m: float, yaw_deg: float) -> None:
+        if abs(yaw_deg) > self.yaw_threshold_deg:
+            self._nav_recovery_action = "turn_right" if yaw_deg > 0 else "turn_left"
+        elif distance_m > self.target_distance_m:
+            self._nav_recovery_action = "move_forward"
+        elif abs(yaw_deg) > 0.1:
+            self._nav_recovery_action = "turn_right" if yaw_deg > 0 else "turn_left"
+        else:
+            self._nav_recovery_action = "move_forward"
 
     async def _run_loop(self) -> None:
         interval = 1.0 / max(1, self.loop_hz)
@@ -341,9 +339,9 @@ class AutonomyController:
                 lock_as_first=False,
             )
         elif self._fsm_state == FSM_NAV_TO_TAG_1:
-            await self._tick_nav(tags)
+            await self._tick_nav(tags, rescan_state=FSM_SCAN_TAG_1)
         elif self._fsm_state == FSM_NAV_TO_TAG_2:
-            await self._tick_nav(tags)
+            await self._tick_nav(tags, rescan_state=FSM_SCAN_TAG_2)
 
         await self.broadcast_state()
 
@@ -358,15 +356,13 @@ class AutonomyController:
         tag = self._find_tag(tags, exclude_id=exclude_id)
         if tag is not None:
             tag_id = int(tag["id"])
-            yaw_deg = float(tag.get("yaw_deg", 0))
-            distance_m = float(tag.get("distance_m", 0))
             self._target_tag_id = tag_id
             if lock_as_first:
                 self._first_tag_id = tag_id
-            self._current_distance_m = distance_m
-            self._nav_last_yaw_deg = yaw_deg
-            self._update_nav_recovery(yaw_deg=yaw_deg)
+            self._current_distance_m = float(tag.get("distance_m", 0))
             self._fsm_state = next_state
+            self._nav_lost_tag_ticks = 0
+            self._nav_recovery_action = None
             self._scan_started_at = None
             self._reset_scan_rotation()
             await self._ensure_stop()
@@ -399,18 +395,30 @@ class AutonomyController:
             self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
             self._scan_rotate_phase_at = now
 
-    async def _tick_nav(self, tags: list[dict]) -> None:
+    async def _tick_nav(self, tags: list[dict], *, rescan_state: str) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)
         if tag is None:
-            self._alert = "Tag fora do frame — reorientando para recuperar."
-            await self._send_motor(self._recovery_action_for_lost_tag())
+            self._nav_lost_tag_ticks += 1
+            if self._nav_lost_tag_ticks >= self.nav_lost_tag_ticks:
+                self._alert = "AprilTag perdida — retomando busca."
+                self._fsm_state = rescan_state
+                self._scan_started_at = time.monotonic()
+                self._reset_scan_rotation()
+                self._nav_lost_tag_ticks = 0
+                self._nav_recovery_action = None
+                self._current_distance_m = None
+                await self._ensure_stop()
+                return
+
+            if self._nav_recovery_action is not None:
+                await self._send_motor(self._nav_recovery_action)
             return
 
+        self._nav_lost_tag_ticks = 0
         distance_m = float(tag.get("distance_m", 999))
         yaw_deg = float(tag.get("yaw_deg", 0))
         self._current_distance_m = distance_m
-        self._update_nav_recovery(yaw_deg=yaw_deg)
-        self._alert = None
+        self._update_nav_recovery(distance_m=distance_m, yaw_deg=yaw_deg)
 
         if distance_m <= self.target_distance_m and abs(yaw_deg) <= self.yaw_threshold_deg:
             self._nav_recovery_action = None
@@ -421,21 +429,17 @@ class AutonomyController:
             else:
                 self._fsm_state = FSM_MANUAL_DEPALLETIZE
                 print("[autonomy] Destino 2ª tag — aguardando despaletização manual.")
+            self._alert = None
             return
 
-        if abs(yaw_deg) > self.tracking_yaw_threshold_deg:
-            await self._send_motor(self._turn_action_for_yaw(yaw_deg))
+        if abs(yaw_deg) > self.yaw_threshold_deg:
+            if yaw_deg > 0:
+                await self._send_motor("turn_right")
+            else:
+                await self._send_motor("turn_left")
             return
 
-        if distance_m > self.target_distance_m:
-            await self._send_motor("move_forward")
-            return
-
-        if abs(yaw_deg) > 0.3:
-            await self._send_motor(self._turn_action_for_yaw(yaw_deg))
-            return
-
-        await self._ensure_stop()
+        await self._send_motor("move_forward")
 
 
 autonomy_controller = AutonomyController()
