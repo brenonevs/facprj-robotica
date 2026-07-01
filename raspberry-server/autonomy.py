@@ -91,7 +91,7 @@ def _env_int(name: str, default: int) -> int:
 
 class AutonomyController:
     def __init__(self) -> None:
-        self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.8)
+        self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.15)
         self.yaw_threshold_deg = _env_float("AUTONOMY_YAW_THRESHOLD_DEG", 8.0)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
