@@ -94,8 +94,8 @@ class AutonomyController:
         self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.8)
         self.yaw_threshold_deg = _env_float("AUTONOMY_YAW_THRESHOLD_DEG", 8.0)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
-        self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 1.5)
-        self.scan_rotate_duration_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.35)
+        self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
+        self.scan_rotate_duration_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.6)
         self.loop_hz = _env_int("AUTONOMY_LOOP_HZ", 10)
         self._fsm_state = FSM_OFF
         self._first_tag_id: int | None = None
