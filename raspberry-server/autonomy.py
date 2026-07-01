@@ -276,6 +276,18 @@ class AutonomyController:
         await asyncio.to_thread(bridge.send_action, action)
         self._last_motor_action = action
 
+    def _is_yaw_aligned(self, yaw_deg: float) -> bool:
+        return abs(yaw_deg) <= self.yaw_threshold_deg
+
+    async def _align_or_turn(self, yaw_deg: float) -> bool:
+        if self._is_yaw_aligned(yaw_deg):
+            return True
+        if yaw_deg > 0:
+            await self._send_motor("turn_right")
+        else:
+            await self._send_motor("turn_left")
+        return False
+
     def _find_tag(self, tags: list[dict], *, exclude_id: int | None = None) -> dict | None:
         for tag in tags:
             tag_id = int(tag.get("id", -1))
@@ -402,6 +414,8 @@ class AutonomyController:
         self._current_distance_m = distance_m
 
         if distance_m <= self.target_distance_m:
+            if not await self._align_or_turn(yaw_deg):
+                return
             await self._ensure_stop()
             if self._fsm_state == FSM_NAV_TO_TAG_1:
                 self._fsm_state = FSM_MANUAL_PALLETIZE
@@ -412,11 +426,7 @@ class AutonomyController:
             self._alert = None
             return
 
-        if abs(yaw_deg) > self.yaw_threshold_deg:
-            if yaw_deg > 0:
-                await self._send_motor("turn_right")
-            else:
-                await self._send_motor("turn_left")
+        if not await self._align_or_turn(yaw_deg):
             return
 
         await self._send_motor("move_forward")
