@@ -26,10 +26,13 @@ const int ENCODER2_A = 20;
 const int ENCODER2_B = 21;
 const float ENCODER_COUNTS_PER_REV = 720.0f;
 
-const int DEFAULT_DRIVE_PERCENT = 100;
+const int DEFAULT_DRIVE_PERCENT = 70;
 const float MAX_MOTOR_RPM = 120.0f;
-const float PID_KP = 2.2f;
-const float PID_KI = 0.4f;
+const float RPM_RAMP_UP_RATE = 140.0f;
+const float RPM_RAMP_DOWN_RATE = 220.0f;
+const float MIN_RPM_FOR_MIN_PWM = 18.0f;
+const float PID_KP = 1.6f;
+const float PID_KI = 0.35f;
 const float PID_KD = 0.08f;
 const int MIN_DRIVE_PWM = 35;
 
@@ -42,6 +45,7 @@ enum DriveMode {
 };
 
 struct MotorController {
+  float commandedRpm;
   float targetRpm;
   float measuredRpm;
   float integral;
@@ -150,7 +154,27 @@ float targetRpmFromPercent(int percent) {
   return ((float)constrain(percent, 0, 100) / 100.0f) * MAX_MOTOR_RPM;
 }
 
+float rampRpmToward(float current, float target, float elapsedSec) {
+  if (fabs(target - current) < 0.5f) {
+    return target;
+  }
+
+  float rate = RPM_RAMP_UP_RATE;
+  if (fabs(target) < fabs(current) - 0.5f) {
+    rate = RPM_RAMP_DOWN_RATE;
+  } else if ((current > 0.5f && target < -0.5f) || (current < -0.5f && target > 0.5f)) {
+    rate = RPM_RAMP_DOWN_RATE;
+  }
+
+  float maxDelta = rate * elapsedSec;
+  if (target > current) {
+    return min(current + maxDelta, target);
+  }
+  return max(current - maxDelta, target);
+}
+
 void resetMotorController(MotorController& motor) {
+  motor.commandedRpm = 0.0f;
   motor.targetRpm = 0.0f;
   motor.measuredRpm = 0.0f;
   motor.integral = 0.0f;
@@ -165,25 +189,25 @@ void setDriveTargets(DriveMode mode, int percent) {
 
   switch (mode) {
     case DRIVE_FORWARD:
-      motor1.targetRpm = target;
-      motor2.targetRpm = target;
+      motor1.commandedRpm = target;
+      motor2.commandedRpm = target;
       break;
     case DRIVE_BACKWARD:
-      motor1.targetRpm = -target;
-      motor2.targetRpm = -target;
+      motor1.commandedRpm = -target;
+      motor2.commandedRpm = -target;
       break;
     case DRIVE_LEFT:
-      motor1.targetRpm = -target;
-      motor2.targetRpm = target;
+      motor1.commandedRpm = -target;
+      motor2.commandedRpm = target;
       break;
     case DRIVE_RIGHT:
-      motor1.targetRpm = target;
-      motor2.targetRpm = -target;
+      motor1.commandedRpm = target;
+      motor2.commandedRpm = -target;
       break;
     case DRIVE_STOP:
     default:
-      motor1.targetRpm = 0.0f;
-      motor2.targetRpm = 0.0f;
+      motor1.commandedRpm = 0.0f;
+      motor2.commandedRpm = 0.0f;
       break;
   }
 }
@@ -211,8 +235,14 @@ int computeMotorPwm(MotorController& motor, float elapsedSec, bool& outForward) 
   outForward = (output >= 0.0f);
 
   int pwm = (int)round(fabs(output));
-  if (pwm > 0 && pwm < MIN_DRIVE_PWM) {
-    pwm = MIN_DRIVE_PWM;
+  if (fabs(motor.targetRpm) >= MIN_RPM_FOR_MIN_PWM) {
+    int minPwm = (int)round(
+      MIN_DRIVE_PWM * (fabs(motor.targetRpm) / MAX_MOTOR_RPM)
+    );
+    minPwm = constrain(minPwm, 0, MIN_DRIVE_PWM);
+    if (pwm > 0 && pwm < minPwm) {
+      pwm = minPwm;
+    }
   }
   motor.pwm = constrain(pwm, 0, 255);
   return motor.pwm;
@@ -265,6 +295,9 @@ void updateDriveControl() {
   motor2.measuredRpm = rpmFromCounts(counts2, elapsedMs);
 
   float elapsedSec = elapsedMs / 1000.0f;
+
+  motor1.targetRpm = rampRpmToward(motor1.targetRpm, motor1.commandedRpm, elapsedSec);
+  motor2.targetRpm = rampRpmToward(motor2.targetRpm, motor2.commandedRpm, elapsedSec);
 
   bool dir1, dir2;
   int pwm1 = computeMotorPwm(motor1, elapsedSec, dir1);
