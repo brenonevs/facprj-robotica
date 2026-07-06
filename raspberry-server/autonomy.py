@@ -87,6 +87,10 @@ SCAN_ROTATE_PHASE_TURN = "turn"
 ALIGN_ROTATE_PHASE_WAIT = "wait"
 ALIGN_ROTATE_PHASE_TURN = "turn"
 
+NAV_PHASE_FORWARD_WAIT = "forward_wait"
+NAV_PHASE_FORWARD_MOVE = "forward_move"
+NAV_PHASE_REALIGN = "realign"
+
 
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
@@ -115,7 +119,8 @@ class AutonomyController:
         self.align_wait_s = _env_float("AUTONOMY_ALIGN_WAIT_S", 0.35)
         self.align_pulse_min_s = _env_float("AUTONOMY_ALIGN_PULSE_MIN_S", 0.18)
         self.align_pulse_max_s = _env_float("AUTONOMY_ALIGN_PULSE_MAX_S", 0.5)
-        self.nav_forward_cone_deg = _env_float("AUTONOMY_NAV_FORWARD_CONE_DEG", 35.0)
+        self.nav_forward_pulse_s = _env_float("AUTONOMY_NAV_FORWARD_PULSE_S", 0.4)
+        self.nav_forward_wait_s = _env_float("AUTONOMY_NAV_FORWARD_WAIT_S", 0.3)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
@@ -132,6 +137,9 @@ class AutonomyController:
         self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
         self._align_rotate_phase_at = 0.0
         self._align_pulse_end_at = 0.0
+        self._nav_phase = NAV_PHASE_FORWARD_WAIT
+        self._nav_phase_at = 0.0
+        self._nav_forward_pulse_end_at = 0.0
         self._nav_lost_tag_ticks = 0
         self._nav_recovery_action: str | None = None
         self._last_motor_action: str | None = None
@@ -288,6 +296,7 @@ class AutonomyController:
         self._scan_started_at = None
         self._reset_scan_rotation()
         self._reset_align_rotation()
+        self._reset_nav_approach()
         self._nav_lost_tag_ticks = 0
         self._nav_recovery_action = None
 
@@ -299,6 +308,11 @@ class AutonomyController:
         self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
         self._align_rotate_phase_at = time.monotonic()
         self._align_pulse_end_at = 0.0
+
+    def _reset_nav_approach(self) -> None:
+        self._nav_phase = NAV_PHASE_FORWARD_WAIT
+        self._nav_phase_at = time.monotonic()
+        self._nav_forward_pulse_end_at = 0.0
 
     async def _ensure_stop(self) -> None:
         if self._last_motor_action == "stop":
@@ -344,23 +358,6 @@ class AutonomyController:
 
     def _align_turn_action(self, bearing_deg: float) -> str:
         return "turn_right" if bearing_deg > 0 else "turn_left"
-
-    def _nav_action_from_tag(self, tag: dict) -> str | None:
-        distance_m = float(tag.get("distance_m", 999))
-        if distance_m <= self.target_distance_m:
-            return None
-
-        x = float(tag.get("x", 0))
-        z = float(tag.get("z", 0))
-        if z <= 0.05:
-            return "turn_right" if x >= 0 else "turn_left"
-
-        bearing_deg = math.degrees(math.atan2(x, z))
-        if abs(bearing_deg) <= self.nav_forward_cone_deg:
-            return "move_forward"
-        if bearing_deg > 0:
-            return "turn_right"
-        return "turn_left"
 
     async def _run_loop(self) -> None:
         interval = 1.0 / max(1, self.loop_hz)
@@ -502,6 +499,7 @@ class AutonomyController:
             self._fsm_state = nav_state
             self._nav_recovery_action = None
             self._reset_align_rotation()
+            self._reset_nav_approach()
             await self._ensure_stop()
             print(f"[autonomy] Tag #{self._target_tag_id} centralizada → {nav_state}")
             return
@@ -517,24 +515,26 @@ class AutonomyController:
                 self._fsm_state = rescan_state
                 self._scan_started_at = time.monotonic()
                 self._reset_scan_rotation()
+                self._reset_align_rotation()
+                self._reset_nav_approach()
                 self._nav_lost_tag_ticks = 0
                 self._nav_recovery_action = None
                 self._current_distance_m = None
                 await self._ensure_stop()
                 return
 
-            if self._nav_recovery_action is not None:
-                await self._send_motor(self._nav_recovery_action)
+            await self._ensure_stop()
             return
 
         self._nav_lost_tag_ticks = 0
         distance_m = float(tag.get("distance_m", 999))
         self._current_distance_m = distance_m
-        action = self._nav_action_from_tag(tag)
-        self._nav_recovery_action = action
+        bearing_deg = self._bearing_deg_from_tag(tag)
+        now = time.monotonic()
 
-        if action is None:
+        if distance_m <= self.target_distance_m:
             await self._ensure_stop()
+            self._reset_nav_approach()
             if self._fsm_state == FSM_NAV_TO_TAG_1:
                 self._fsm_state = FSM_MANUAL_PALLETIZE
                 print("[autonomy] Destino 1ª tag — aguardando paletização manual.")
@@ -544,7 +544,32 @@ class AutonomyController:
             self._alert = None
             return
 
-        await self._send_motor(action)
+        if self._nav_phase == NAV_PHASE_FORWARD_WAIT:
+            await self._ensure_stop()
+            if now - self._nav_phase_at < self.nav_forward_wait_s:
+                return
+            await self._send_motor("move_forward")
+            self._nav_phase = NAV_PHASE_FORWARD_MOVE
+            self._nav_phase_at = now
+            self._nav_forward_pulse_end_at = now + self.nav_forward_pulse_s
+            return
+
+        if self._nav_phase == NAV_PHASE_FORWARD_MOVE:
+            if now < self._nav_forward_pulse_end_at:
+                return
+            await self._ensure_stop()
+            self._nav_phase = NAV_PHASE_REALIGN
+            self._nav_phase_at = now
+            self._reset_align_rotation()
+            return
+
+        if self._is_tag_centered(tag):
+            self._nav_phase = NAV_PHASE_FORWARD_WAIT
+            self._nav_phase_at = now
+            self._reset_align_rotation()
+            return
+
+        await self._tick_align_pulse(bearing_deg)
 
 
 autonomy_controller = AutonomyController()
