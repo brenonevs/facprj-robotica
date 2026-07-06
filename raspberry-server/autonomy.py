@@ -10,9 +10,11 @@ from vision import vision_service
 FSM_OFF = "OFF"
 FSM_IDLE = "IDLE"
 FSM_SCAN_TAG_1 = "SCAN_TAG_1"
+FSM_ALIGN_TAG_1 = "ALIGN_TAG_1"
 FSM_NAV_TO_TAG_1 = "NAV_TO_TAG_1"
 FSM_MANUAL_PALLETIZE = "MANUAL_PALLETIZE"
 FSM_SCAN_TAG_2 = "SCAN_TAG_2"
+FSM_ALIGN_TAG_2 = "ALIGN_TAG_2"
 FSM_NAV_TO_TAG_2 = "NAV_TO_TAG_2"
 FSM_MANUAL_DEPALLETIZE = "MANUAL_DEPALLETIZE"
 
@@ -20,9 +22,11 @@ FSM_STATES = [
     FSM_OFF,
     FSM_IDLE,
     FSM_SCAN_TAG_1,
+    FSM_ALIGN_TAG_1,
     FSM_NAV_TO_TAG_1,
     FSM_MANUAL_PALLETIZE,
     FSM_SCAN_TAG_2,
+    FSM_ALIGN_TAG_2,
     FSM_NAV_TO_TAG_2,
     FSM_MANUAL_DEPALLETIZE,
 ]
@@ -48,21 +52,32 @@ MANUAL_MOTOR_ACTIONS = frozenset(
     }
 )
 
-ACTIVE_NAV_STATES = frozenset({FSM_SCAN_TAG_1, FSM_NAV_TO_TAG_1, FSM_SCAN_TAG_2, FSM_NAV_TO_TAG_2})
+ACTIVE_NAV_STATES = frozenset(
+    {
+        FSM_SCAN_TAG_1,
+        FSM_ALIGN_TAG_1,
+        FSM_NAV_TO_TAG_1,
+        FSM_SCAN_TAG_2,
+        FSM_ALIGN_TAG_2,
+        FSM_NAV_TO_TAG_2,
+    }
+)
 
 MANUAL_CONTROL_STATES = frozenset({FSM_MANUAL_PALLETIZE, FSM_MANUAL_DEPALLETIZE})
 
 CYCLE_STEP_BY_STATE = {
     FSM_IDLE: 0,
     FSM_SCAN_TAG_1: 1,
-    FSM_NAV_TO_TAG_1: 2,
-    FSM_MANUAL_PALLETIZE: 3,
-    FSM_SCAN_TAG_2: 4,
-    FSM_NAV_TO_TAG_2: 5,
-    FSM_MANUAL_DEPALLETIZE: 6,
+    FSM_ALIGN_TAG_1: 2,
+    FSM_NAV_TO_TAG_1: 3,
+    FSM_MANUAL_PALLETIZE: 4,
+    FSM_SCAN_TAG_2: 5,
+    FSM_ALIGN_TAG_2: 6,
+    FSM_NAV_TO_TAG_2: 7,
+    FSM_MANUAL_DEPALLETIZE: 8,
 }
 
-CYCLE_STEP_TOTAL = 6
+CYCLE_STEP_TOTAL = 8
 
 NAV_LOST_TAG_TICKS_DEFAULT = 45
 
@@ -93,6 +108,7 @@ def _env_int(name: str, default: int) -> int:
 class AutonomyController:
     def __init__(self) -> None:
         self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.15)
+        self.align_center_threshold_deg = _env_float("AUTONOMY_ALIGN_CENTER_THRESHOLD_DEG", 5.0)
         self.nav_forward_cone_deg = _env_float("AUTONOMY_NAV_FORWARD_CONE_DEG", 35.0)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
@@ -297,6 +313,24 @@ class AutonomyController:
                 return tag
         return None
 
+    def _bearing_deg_from_tag(self, tag: dict) -> float:
+        x = float(tag.get("x", 0))
+        z = float(tag.get("z", 0))
+        if z <= 0.05:
+            return 90.0 if x >= 0 else -90.0
+        return math.degrees(math.atan2(x, z))
+
+    def _is_tag_centered(self, tag: dict) -> bool:
+        return abs(self._bearing_deg_from_tag(tag)) <= self.align_center_threshold_deg
+
+    def _align_action_from_tag(self, tag: dict) -> str | None:
+        if self._is_tag_centered(tag):
+            return None
+        bearing_deg = self._bearing_deg_from_tag(tag)
+        if bearing_deg > 0:
+            return "turn_right"
+        return "turn_left"
+
     def _nav_action_from_tag(self, tag: dict) -> str | None:
         distance_m = float(tag.get("distance_m", 999))
         if distance_m <= self.target_distance_m:
@@ -338,14 +372,18 @@ class AutonomyController:
         tags = vision_state.get("tags") or []
 
         if self._fsm_state == FSM_SCAN_TAG_1:
-            await self._tick_scan(tags, exclude_id=None, next_state=FSM_NAV_TO_TAG_1, lock_as_first=True)
+            await self._tick_scan(tags, exclude_id=None, next_state=FSM_ALIGN_TAG_1, lock_as_first=True)
         elif self._fsm_state == FSM_SCAN_TAG_2:
             await self._tick_scan(
                 tags,
                 exclude_id=self._first_tag_id,
-                next_state=FSM_NAV_TO_TAG_2,
+                next_state=FSM_ALIGN_TAG_2,
                 lock_as_first=False,
             )
+        elif self._fsm_state == FSM_ALIGN_TAG_1:
+            await self._tick_align(tags, nav_state=FSM_NAV_TO_TAG_1, rescan_state=FSM_SCAN_TAG_1)
+        elif self._fsm_state == FSM_ALIGN_TAG_2:
+            await self._tick_align(tags, nav_state=FSM_NAV_TO_TAG_2, rescan_state=FSM_SCAN_TAG_2)
         elif self._fsm_state == FSM_NAV_TO_TAG_1:
             await self._tick_nav(tags, rescan_state=FSM_SCAN_TAG_1)
         elif self._fsm_state == FSM_NAV_TO_TAG_2:
@@ -402,6 +440,39 @@ class AutonomyController:
             await self._ensure_stop()
             self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
             self._scan_rotate_phase_at = now
+
+    async def _tick_align(self, tags: list[dict], *, nav_state: str, rescan_state: str) -> None:
+        tag = self._find_tag_by_id(tags, self._target_tag_id)
+        if tag is None:
+            self._nav_lost_tag_ticks += 1
+            if self._nav_lost_tag_ticks >= self.nav_lost_tag_ticks:
+                self._alert = "AprilTag perdida — retomando busca."
+                self._fsm_state = rescan_state
+                self._scan_started_at = time.monotonic()
+                self._reset_scan_rotation()
+                self._nav_lost_tag_ticks = 0
+                self._nav_recovery_action = None
+                self._current_distance_m = None
+                await self._ensure_stop()
+                return
+
+            if self._nav_recovery_action is not None:
+                await self._send_motor(self._nav_recovery_action)
+            return
+
+        self._nav_lost_tag_ticks = 0
+        self._current_distance_m = float(tag.get("distance_m", 999))
+        action = self._align_action_from_tag(tag)
+        self._nav_recovery_action = action
+
+        if action is None:
+            self._fsm_state = nav_state
+            self._nav_recovery_action = None
+            await self._ensure_stop()
+            print(f"[autonomy] Tag #{self._target_tag_id} centralizada → {nav_state}")
+            return
+
+        await self._send_motor(action)
 
     async def _tick_nav(self, tags: list[dict], *, rescan_state: str) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)

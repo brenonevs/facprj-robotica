@@ -2,6 +2,7 @@ import {
   Bot,
   CheckCircle2,
   Play,
+  Crosshair,
   ScanLine,
   Truck,
   PackageOpen,
@@ -13,11 +14,13 @@ import { FSM_STATE_LABELS } from "../lib/telemetry.js";
 
 const STEPS = [
   { key: 1, label: "Buscar tag 1", icon: ScanLine },
-  { key: 2, label: "Chegar", icon: Truck },
-  { key: 3, label: "Paletizar", icon: Package },
-  { key: 4, label: "Buscar tag 2", icon: ScanLine },
-  { key: 5, label: "Chegar", icon: Truck },
-  { key: 6, label: "Despaletizar", icon: PackageOpen },
+  { key: 2, label: "Alinhar tag 1", icon: Crosshair },
+  { key: 3, label: "Chegar", icon: Truck },
+  { key: 4, label: "Paletizar", icon: Package },
+  { key: 5, label: "Buscar tag 2", icon: ScanLine },
+  { key: 6, label: "Alinhar tag 2", icon: Crosshair },
+  { key: 7, label: "Chegar", icon: Truck },
+  { key: 8, label: "Despaletizar", icon: PackageOpen },
 ];
 
 function formatDistance(value) {

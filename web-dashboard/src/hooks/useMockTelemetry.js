@@ -4,9 +4,11 @@ const FSM_STATES = [
   "OFF",
   "IDLE",
   "SCAN_TAG_1",
+  "ALIGN_TAG_1",
   "NAV_TO_TAG_1",
   "MANUAL_PALLETIZE",
   "SCAN_TAG_2",
+  "ALIGN_TAG_2",
   "NAV_TO_TAG_2",
   "MANUAL_DEPALLETIZE",
 ];

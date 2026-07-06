@@ -7,7 +7,7 @@ export const OFFLINE_AUTONOMY = {
   currentDistanceM: null,
   manualControlAllowed: false,
   cycleStep: 0,
-  cycleStepTotal: 6,
+  cycleStepTotal: 8,
   alert: null,
 };
 
@@ -15,9 +15,11 @@ export const FSM_STATE_LABELS = {
   OFF: "Desligado",
   IDLE: "Aguardando início",
   SCAN_TAG_1: "Buscando 1ª AprilTag",
+  ALIGN_TAG_1: "Alinhando 1ª AprilTag",
   NAV_TO_TAG_1: "Navegando até 1ª tag",
   MANUAL_PALLETIZE: "Paletização manual",
   SCAN_TAG_2: "Buscando 2ª AprilTag",
+  ALIGN_TAG_2: "Alinhando 2ª AprilTag",
   NAV_TO_TAG_2: "Navegando até 2ª tag",
   MANUAL_DEPALLETIZE: "Despaletização manual",
 };
@@ -41,7 +43,7 @@ export function autonomyFromWebSocketMessage(message) {
         : Number(message.currentDistanceM),
     manualControlAllowed: Boolean(message.manualControlAllowed),
     cycleStep: Number(message.cycleStep ?? 0),
-    cycleStepTotal: Number(message.cycleStepTotal ?? 6),
+    cycleStepTotal: Number(message.cycleStepTotal ?? 8),
     alert: message.alert ?? null,
   };
 }
