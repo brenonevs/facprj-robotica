@@ -9,10 +9,10 @@
 | action (WebSocket) | Linha serial |
 |--------------------|--------------|
 | `stop` | `S` |
-| `move_forward` | `M F` |
-| `move_backward` | `M B` |
-| `turn_left` | `M L` |
-| `turn_right` | `M R` |
+| `move_forward` | `M B` |
+| `move_backward` | `M F` |
+| `turn_left` | `M R` |
+| `turn_right` | `M L` |
 | `fork_up` | `F U` |
 | `fork_down` | `F D` |
 | `start_autonomous_mode` | `A 1` |

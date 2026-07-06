@@ -14,18 +14,22 @@ const unsigned long FORK_STEP_INTERVAL_US = 60000000UL / (FORK_RPM * FORK_STEPS_
 
 const int GND_PIN = 16;
 const int VCC_PIN = 17;
+const int ENA = 2;
 const int ENB = 8;
+
 const int IN4 = 9;
 const int IN3 = 10;
 const int IN2 = 11;
 const int IN1 = 12;
-const int ENA = 13;
 
 const int ENCODER1_A = 18;
 const int ENCODER1_B = 19;
 const int ENCODER2_A = 20;
 const int ENCODER2_B = 21;
 const float ENCODER_COUNTS_PER_REV = 720.0f;
+const float MOTOR1_ENCODER_SCALE = 1.0f;
+const float MOTOR2_ENCODER_SCALE = 1.0f;
+const bool MOTOR2_DIRECTION_INVERTED = true;
 const float WHEEL_DIAMETER_M = 0.05436f;
 const float TRACK_WIDTH_M = 0.1427f;
 const float WHEEL_CIRCUMFERENCE_M = 3.14159265f * WHEEL_DIAMETER_M;
@@ -40,6 +44,9 @@ const float MIN_RPM_FOR_MIN_PWM = 18.0f;
 const float PID_KP = 1.6f;
 const float PID_KI = 0.35f;
 const float PID_KD = 0.08f;
+const float WHEEL_POS_KP = 0.18f;
+const float WHEEL_POS_KI = 0.03f;
+const int WHEEL_POS_MAX_TRIM = 55;
 const int MIN_DRIVE_PWM = 35;
 
 enum DriveMode {
@@ -55,7 +62,7 @@ struct MotorController {
   float targetRpm;
   float measuredRpm;
   float integral;
-  float lastError;
+  float lastMeasuredRpm;
   int pwm;
 };
 
@@ -80,6 +87,13 @@ MotorController motor2;
 float odomX = 0.0f;
 float odomY = 0.0f;
 float odomThetaDeg = 0.0f;
+
+long wheelPos1 = 0;
+long wheelPos2 = 0;
+long sharedWheelTarget = 0;
+float wheelPosIntegral1 = 0.0f;
+float wheelPosIntegral2 = 0.0f;
+long lastWheelSyncError = 0;
 
 const int8_t QUADRATURE_TABLE[16] = {
   0, 1, -1, 0,
@@ -112,14 +126,20 @@ void readQuadratureEncoder(int pinA, int pinB, int& lastState, volatile long& co
   lastState = state;
 }
 
+void pollEncoders() {
+  readQuadratureEncoder(ENCODER1_A, ENCODER1_B, encoder1LastState, encoder1Count);
+  readQuadratureEncoder(ENCODER2_A, ENCODER2_B, encoder2LastState, encoder2Count);
+}
+
 void setMotor1Direction(bool forward) {
   digitalWrite(IN1, forward ? HIGH : LOW);
   digitalWrite(IN2, forward ? LOW : HIGH);
 }
 
-void setMotor2Direction(bool invertedBackward) {
-  digitalWrite(IN3, invertedBackward ? LOW : HIGH);
-  digitalWrite(IN4, invertedBackward ? HIGH : LOW);
+void setMotor2Direction(bool forward) {
+  bool driveForward = MOTOR2_DIRECTION_INVERTED ? !forward : forward;
+  digitalWrite(IN3, driveForward ? HIGH : LOW);
+  digitalWrite(IN4, driveForward ? LOW : HIGH);
 }
 
 void applyMotor1Pwm(bool forward, int pwm) {
@@ -146,11 +166,11 @@ void applyMotor2Pwm(bool forward, int pwm) {
   analogWrite(ENB, pwm);
 }
 
-float rpmFromCounts(long counts, float elapsedMs) {
+float rpmFromCounts(long counts, float elapsedMs, float scale) {
   if (elapsedMs <= 0.0f) {
     return 0.0f;
   }
-  return ((float)counts / ENCODER_COUNTS_PER_REV) * 60000.0f / elapsedMs;
+  return ((float)counts * scale / ENCODER_COUNTS_PER_REV) * 60000.0f / elapsedMs;
 }
 
 float targetRpmFromPercent(int percent) {
@@ -181,14 +201,72 @@ void resetMotorController(MotorController& motor) {
   motor.targetRpm = 0.0f;
   motor.measuredRpm = 0.0f;
   motor.integral = 0.0f;
-  motor.lastError = 0.0f;
+  motor.lastMeasuredRpm = 0.0f;
   motor.pwm = 0;
 }
 
+bool isStraightDriveMode() {
+  return driveMode == DRIVE_FORWARD || driveMode == DRIVE_BACKWARD;
+}
+
+long scaledWheelPos(long rawPos, float scale) {
+  return (long)round((float)rawPos * scale);
+}
+
+void resetWheelPositionSync() {
+  wheelPos1 = 0;
+  wheelPos2 = 0;
+  sharedWheelTarget = 0;
+  wheelPosIntegral1 = 0.0f;
+  wheelPosIntegral2 = 0.0f;
+  lastWheelSyncError = 0;
+}
+
+void updateSharedWheelTarget(float elapsedMs) {
+  if (!isStraightDriveMode()) {
+    return;
+  }
+
+  float sign = (driveMode == DRIVE_FORWARD) ? 1.0f : -1.0f;
+  float rpm = (fabs(motor1.commandedRpm) + fabs(motor2.commandedRpm)) * 0.5f;
+  float deltaCounts = sign * rpm * ENCODER_COUNTS_PER_REV / 60000.0f * elapsedMs;
+  sharedWheelTarget += (long)round(deltaCounts);
+}
+
+int computeWheelPositionTrim(long scaledPos, float& posIntegral, float elapsedSec) {
+  float posError = (float)(sharedWheelTarget - scaledPos);
+  posIntegral += posError * elapsedSec;
+  posIntegral = constrain(posIntegral, -6000.0f, 6000.0f);
+
+  float trim = (WHEEL_POS_KP * posError) + (WHEEL_POS_KI * posIntegral);
+  return constrain((int)round(trim), -WHEEL_POS_MAX_TRIM, WHEEL_POS_MAX_TRIM);
+}
+
+void applyStraightWheelPositionControl(int& pwm1, int& pwm2, float elapsedSec) {
+  if (!isStraightDriveMode()) {
+    return;
+  }
+
+  long scaledPos1 = scaledWheelPos(wheelPos1, MOTOR1_ENCODER_SCALE);
+  long scaledPos2 = scaledWheelPos(wheelPos2, MOTOR2_ENCODER_SCALE);
+  lastWheelSyncError = scaledPos1 - scaledPos2;
+
+  int trim1 = computeWheelPositionTrim(scaledPos1, wheelPosIntegral1, elapsedSec);
+  int trim2 = computeWheelPositionTrim(scaledPos2, wheelPosIntegral2, elapsedSec);
+
+  pwm1 = constrain(pwm1 + trim1, 0, 255);
+  pwm2 = constrain(pwm2 + trim2, 0, 255);
+}
+
 void setDriveTargets(DriveMode mode, int percent) {
+  DriveMode previousMode = driveMode;
   float target = targetRpmFromPercent(percent);
   driveMode = mode;
   drivePercent = percent;
+
+  if (mode != previousMode && isStraightDriveMode()) {
+    resetWheelPositionSync();
+  }
 
   switch (mode) {
     case DRIVE_FORWARD:
@@ -218,7 +296,7 @@ void setDriveTargets(DriveMode mode, int percent) {
 int computeMotorPwm(MotorController& motor, float elapsedSec, bool& outForward) {
   if (fabs(motor.targetRpm) < 0.5f) {
     motor.integral = 0.0f;
-    motor.lastError = motor.measuredRpm;
+    motor.lastMeasuredRpm = motor.measuredRpm;
     motor.pwm = 0;
     outForward = true;
     return 0;
@@ -228,12 +306,14 @@ int computeMotorPwm(MotorController& motor, float elapsedSec, bool& outForward) 
   motor.integral += error * elapsedSec;
   motor.integral = constrain(motor.integral, -80.0f, 80.0f);
 
-  float derivative = (elapsedSec > 0.0f) ? -((motor.measuredRpm - motor.lastError) / elapsedSec) : 0.0f;
-  motor.lastError = motor.measuredRpm;
+  float derivative = (elapsedSec > 0.0f)
+    ? ((motor.measuredRpm - motor.lastMeasuredRpm) / elapsedSec)
+    : 0.0f;
+  motor.lastMeasuredRpm = motor.measuredRpm;
 
   float feedForward = (motor.targetRpm / MAX_MOTOR_RPM) * 255.0f;
 
-  float output = feedForward + (PID_KP * error) + (PID_KI * motor.integral) + (PID_KD * derivative);
+  float output = feedForward + (PID_KP * error) + (PID_KI * motor.integral) - (PID_KD * derivative);
 
   outForward = (output >= 0.0f);
 
@@ -255,6 +335,7 @@ void stopDriveMotors() {
   setDriveTargets(DRIVE_STOP, 0);
   resetMotorController(motor1);
   resetMotorController(motor2);
+  resetWheelPositionSync();
   applyMotor1Pwm(true, 0);
   applyMotor2Pwm(true, 0);
 }
@@ -312,9 +393,12 @@ void updateDriveControl() {
   encoder2Count = 0;
   interrupts();
 
-  motor1.measuredRpm = rpmFromCounts(counts1, elapsedMs);
-  motor2.measuredRpm = rpmFromCounts(counts2, elapsedMs);
+  motor1.measuredRpm = rpmFromCounts(counts1, elapsedMs, MOTOR1_ENCODER_SCALE);
+  motor2.measuredRpm = rpmFromCounts(counts2, elapsedMs, MOTOR2_ENCODER_SCALE);
+  wheelPos1 += counts1;
+  wheelPos2 += counts2;
   updateOdometry(counts1, counts2);
+  updateSharedWheelTarget(elapsedMs);
 
   float elapsedSec = elapsedMs / 1000.0f;
 
@@ -324,6 +408,9 @@ void updateDriveControl() {
   bool dir1, dir2;
   int pwm1 = computeMotorPwm(motor1, elapsedSec, dir1);
   int pwm2 = computeMotorPwm(motor2, elapsedSec, dir2);
+  applyStraightWheelPositionControl(pwm1, pwm2, elapsedSec);
+  motor1.pwm = pwm1;
+  motor2.pwm = pwm2;
 
   applyMotor1Pwm(dir1, pwm1);
   applyMotor2Pwm(dir2, pwm2);
@@ -403,7 +490,13 @@ void sendTelemetry() {
   Serial.print(F(" rpm1="));
   Serial.print(motor1.measuredRpm, 1);
   Serial.print(F(" rpm2="));
-  Serial.println(motor2.measuredRpm, 1);
+  Serial.print(motor2.measuredRpm, 1);
+  Serial.print(F(" pwm1="));
+  Serial.print(motor1.pwm);
+  Serial.print(F(" pwm2="));
+  Serial.print(motor2.pwm);
+  Serial.print(F(" sync="));
+  Serial.println(lastWheelSyncError);
 }
 
 void handleCommand(String line) {
@@ -546,10 +639,10 @@ void setupDriveMotors() {
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
-  pinMode(ENCODER1_A, INPUT);
-  pinMode(ENCODER1_B, INPUT);
-  pinMode(ENCODER2_A, INPUT);
-  pinMode(ENCODER2_B, INPUT);
+  pinMode(ENCODER1_A, INPUT_PULLUP);
+  pinMode(ENCODER1_B, INPUT_PULLUP);
+  pinMode(ENCODER2_A, INPUT_PULLUP);
+  pinMode(ENCODER2_B, INPUT_PULLUP);
 
   digitalWrite(GND_PIN, LOW);
   digitalWrite(VCC_PIN, HIGH);
@@ -572,12 +665,13 @@ void setup() {
 }
 
 void loop() {
-  readQuadratureEncoder(ENCODER1_A, ENCODER1_B, encoder1LastState, encoder1Count);
-  readQuadratureEncoder(ENCODER2_A, ENCODER2_B, encoder2LastState, encoder2Count);
-
+  pollEncoders();
   processSerialInput();
+  pollEncoders();
   tickForkMotor();
+  pollEncoders();
   updateDriveControl();
+  pollEncoders();
   processSerialInput();
 
   unsigned long now = millis();
