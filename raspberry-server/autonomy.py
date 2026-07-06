@@ -114,7 +114,7 @@ def _env_int(name: str, default: int) -> int:
 
 class AutonomyController:
     def __init__(self) -> None:
-        self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.22)
+        self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.42)
         self.align_center_threshold_deg = _env_float("AUTONOMY_ALIGN_CENTER_THRESHOLD_DEG", 5.0)
         self.align_wait_s = _env_float("AUTONOMY_ALIGN_WAIT_S", 0.35)
         self.align_pulse_min_s = _env_float("AUTONOMY_ALIGN_PULSE_MIN_S", 0.18)
