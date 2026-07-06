@@ -119,7 +119,7 @@ class AutonomyController:
         self.align_wait_s = _env_float("AUTONOMY_ALIGN_WAIT_S", 0.35)
         self.align_pulse_min_s = _env_float("AUTONOMY_ALIGN_PULSE_MIN_S", 0.18)
         self.align_pulse_max_s = _env_float("AUTONOMY_ALIGN_PULSE_MAX_S", 0.5)
-        self.nav_forward_pulse_s = _env_float("AUTONOMY_NAV_FORWARD_PULSE_S", 0.4)
+        self.nav_forward_pulse_s = _env_float("AUTONOMY_NAV_FORWARD_PULSE_S", 0.6)
         self.nav_forward_wait_s = _env_float("AUTONOMY_NAV_FORWARD_WAIT_S", 0.3)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
