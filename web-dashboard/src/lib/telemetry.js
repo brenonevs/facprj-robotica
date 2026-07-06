@@ -3,7 +3,7 @@ export const OFFLINE_AUTONOMY = {
   fsmState: "OFF",
   targetTagId: null,
   firstTagId: null,
-  targetDistanceM: 0.8,
+  targetDistanceM: 0.22,
   currentDistanceM: null,
   manualControlAllowed: false,
   cycleStep: 0,
@@ -36,7 +36,7 @@ export function autonomyFromWebSocketMessage(message) {
       message.firstTagId === null || message.firstTagId === undefined
         ? null
         : Number(message.firstTagId),
-    targetDistanceM: Number(message.targetDistanceM ?? 0.8),
+    targetDistanceM: Number(message.targetDistanceM ?? 0.22),
     currentDistanceM:
       message.currentDistanceM === null || message.currentDistanceM === undefined
         ? null
