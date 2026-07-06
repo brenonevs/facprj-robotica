@@ -84,6 +84,9 @@ NAV_LOST_TAG_TICKS_DEFAULT = 45
 SCAN_ROTATE_PHASE_WAIT = "wait"
 SCAN_ROTATE_PHASE_TURN = "turn"
 
+ALIGN_ROTATE_PHASE_WAIT = "wait"
+ALIGN_ROTATE_PHASE_TURN = "turn"
+
 
 def _env_float(name: str, default: float) -> float:
     raw = os.environ.get(name, "").strip()
@@ -109,6 +112,9 @@ class AutonomyController:
     def __init__(self) -> None:
         self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.15)
         self.align_center_threshold_deg = _env_float("AUTONOMY_ALIGN_CENTER_THRESHOLD_DEG", 5.0)
+        self.align_wait_s = _env_float("AUTONOMY_ALIGN_WAIT_S", 0.4)
+        self.align_pulse_min_s = _env_float("AUTONOMY_ALIGN_PULSE_MIN_S", 0.08)
+        self.align_pulse_max_s = _env_float("AUTONOMY_ALIGN_PULSE_MAX_S", 0.22)
         self.nav_forward_cone_deg = _env_float("AUTONOMY_NAV_FORWARD_CONE_DEG", 35.0)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
@@ -123,6 +129,9 @@ class AutonomyController:
         self._scan_started_at: float | None = None
         self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
         self._scan_rotate_phase_at = 0.0
+        self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
+        self._align_rotate_phase_at = 0.0
+        self._align_pulse_end_at = 0.0
         self._nav_lost_tag_ticks = 0
         self._nav_recovery_action: str | None = None
         self._last_motor_action: str | None = None
@@ -278,12 +287,18 @@ class AutonomyController:
         self._current_distance_m = None
         self._scan_started_at = None
         self._reset_scan_rotation()
+        self._reset_align_rotation()
         self._nav_lost_tag_ticks = 0
         self._nav_recovery_action = None
 
     def _reset_scan_rotation(self) -> None:
         self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
         self._scan_rotate_phase_at = time.monotonic()
+
+    def _reset_align_rotation(self) -> None:
+        self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
+        self._align_rotate_phase_at = time.monotonic()
+        self._align_pulse_end_at = 0.0
 
     async def _ensure_stop(self) -> None:
         if self._last_motor_action == "stop":
@@ -323,13 +338,12 @@ class AutonomyController:
     def _is_tag_centered(self, tag: dict) -> bool:
         return abs(self._bearing_deg_from_tag(tag)) <= self.align_center_threshold_deg
 
-    def _align_action_from_tag(self, tag: dict) -> str | None:
-        if self._is_tag_centered(tag):
-            return None
-        bearing_deg = self._bearing_deg_from_tag(tag)
-        if bearing_deg > 0:
-            return "turn_right"
-        return "turn_left"
+    def _align_pulse_duration_s(self, bearing_deg: float) -> float:
+        ratio = min(1.0, abs(bearing_deg) / 35.0)
+        return self.align_pulse_min_s + ratio * (self.align_pulse_max_s - self.align_pulse_min_s)
+
+    def _align_turn_action(self, bearing_deg: float) -> str:
+        return "turn_right" if bearing_deg > 0 else "turn_left"
 
     def _nav_action_from_tag(self, tag: dict) -> str | None:
         distance_m = float(tag.get("distance_m", 999))
@@ -411,6 +425,7 @@ class AutonomyController:
             self._nav_recovery_action = None
             self._scan_started_at = None
             self._reset_scan_rotation()
+            self._reset_align_rotation()
             await self._ensure_stop()
             print(f"[autonomy] Tag #{tag_id} detectada → {next_state}")
             return
@@ -441,6 +456,25 @@ class AutonomyController:
             self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
             self._scan_rotate_phase_at = now
 
+    async def _tick_align_pulse(self, bearing_deg: float) -> None:
+        now = time.monotonic()
+
+        if self._align_rotate_phase == ALIGN_ROTATE_PHASE_WAIT:
+            await self._ensure_stop()
+            if now - self._align_rotate_phase_at < self.align_wait_s:
+                return
+            pulse_s = self._align_pulse_duration_s(bearing_deg)
+            await self._send_motor(self._align_turn_action(bearing_deg))
+            self._align_rotate_phase = ALIGN_ROTATE_PHASE_TURN
+            self._align_rotate_phase_at = now
+            self._align_pulse_end_at = now + pulse_s
+            return
+
+        if now >= self._align_pulse_end_at:
+            await self._ensure_stop()
+            self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
+            self._align_rotate_phase_at = now
+
     async def _tick_align(self, tags: list[dict], *, nav_state: str, rescan_state: str) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)
         if tag is None:
@@ -450,29 +484,29 @@ class AutonomyController:
                 self._fsm_state = rescan_state
                 self._scan_started_at = time.monotonic()
                 self._reset_scan_rotation()
+                self._reset_align_rotation()
                 self._nav_lost_tag_ticks = 0
                 self._nav_recovery_action = None
                 self._current_distance_m = None
                 await self._ensure_stop()
                 return
 
-            if self._nav_recovery_action is not None:
-                await self._send_motor(self._nav_recovery_action)
+            await self._ensure_stop()
             return
 
         self._nav_lost_tag_ticks = 0
         self._current_distance_m = float(tag.get("distance_m", 999))
-        action = self._align_action_from_tag(tag)
-        self._nav_recovery_action = action
+        bearing_deg = self._bearing_deg_from_tag(tag)
 
-        if action is None:
+        if self._is_tag_centered(tag):
             self._fsm_state = nav_state
             self._nav_recovery_action = None
+            self._reset_align_rotation()
             await self._ensure_stop()
             print(f"[autonomy] Tag #{self._target_tag_id} centralizada → {nav_state}")
             return
 
-        await self._send_motor(action)
+        await self._tick_align_pulse(bearing_deg)
 
     async def _tick_nav(self, tags: list[dict], *, rescan_state: str) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)
