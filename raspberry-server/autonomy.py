@@ -112,9 +112,9 @@ class AutonomyController:
     def __init__(self) -> None:
         self.target_distance_m = _env_float("AUTONOMY_TARGET_DISTANCE_M", 0.15)
         self.align_center_threshold_deg = _env_float("AUTONOMY_ALIGN_CENTER_THRESHOLD_DEG", 5.0)
-        self.align_wait_s = _env_float("AUTONOMY_ALIGN_WAIT_S", 0.4)
-        self.align_pulse_min_s = _env_float("AUTONOMY_ALIGN_PULSE_MIN_S", 0.08)
-        self.align_pulse_max_s = _env_float("AUTONOMY_ALIGN_PULSE_MAX_S", 0.22)
+        self.align_wait_s = _env_float("AUTONOMY_ALIGN_WAIT_S", 0.35)
+        self.align_pulse_min_s = _env_float("AUTONOMY_ALIGN_PULSE_MIN_S", 0.18)
+        self.align_pulse_max_s = _env_float("AUTONOMY_ALIGN_PULSE_MAX_S", 0.5)
         self.nav_forward_cone_deg = _env_float("AUTONOMY_NAV_FORWARD_CONE_DEG", 35.0)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
