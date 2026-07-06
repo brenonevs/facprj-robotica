@@ -6,6 +6,7 @@ const int FORK_ENABLE = 5;
 const int FORK_DIR = 6;
 const int FORK_STEP = 7;
 const int FORK_STEPS_PER_REV = 200;
+const float FORK_LEAD_MM = 19.0f;
 const int FORK_RPM = 80;
 const long FORK_STEPS_MIN = 0;
 const long FORK_STEPS_MAX = 4000;
@@ -25,6 +26,11 @@ const int ENCODER1_B = 19;
 const int ENCODER2_A = 20;
 const int ENCODER2_B = 21;
 const float ENCODER_COUNTS_PER_REV = 720.0f;
+const float WHEEL_DIAMETER_M = 0.05436f;
+const float TRACK_WIDTH_M = 0.1427f;
+const float WHEEL_CIRCUMFERENCE_M = 3.14159265f * WHEEL_DIAMETER_M;
+const float METERS_PER_ENCODER_COUNT = WHEEL_CIRCUMFERENCE_M / ENCODER_COUNTS_PER_REV;
+const float RPM_TO_MPS = WHEEL_CIRCUMFERENCE_M / 60.0f;
 
 const int DEFAULT_DRIVE_PERCENT = 70;
 const float MAX_MOTOR_RPM = 120.0f;
@@ -58,8 +64,6 @@ bool autonomous = false;
 unsigned long bootMs = 0;
 unsigned long lastTelemetryMs = 0;
 unsigned long lastDriveControlMs = 0;
-unsigned long telemetryTick = 0;
-int fsmIndex = 0;
 int forkDir = 0;
 long forkSteps = 2000;
 unsigned long lastForkStepUs = 0;
@@ -73,10 +77,9 @@ int encoder2LastState = 0;
 MotorController motor1;
 MotorController motor2;
 
-float simX = 1.2f;
-float simY = 0.4f;
-float simTh = 4.5f;
-float simBat = 87.0f;
+float odomX = 0.0f;
+float odomY = 0.0f;
+float odomThetaDeg = 0.0f;
 
 const int8_t QUADRATURE_TABLE[16] = {
   0, 1, -1, 0,
@@ -272,6 +275,24 @@ void driveRight(int percent) {
   setDriveTargets(DRIVE_RIGHT, percent);
 }
 
+void updateOdometry(long countsLeft, long countsRight) {
+  float dsLeft = (float)countsLeft * METERS_PER_ENCODER_COUNT;
+  float dsRight = (float)countsRight * METERS_PER_ENCODER_COUNT;
+  float ds = (dsLeft + dsRight) * 0.5f;
+  float dThetaRad = (dsRight - dsLeft) / TRACK_WIDTH_M;
+  float thetaRad = odomThetaDeg * (3.14159265f / 180.0f);
+  float midThetaRad = thetaRad + dThetaRad * 0.5f;
+  odomX += ds * cos(midThetaRad);
+  odomY += ds * sin(midThetaRad);
+  odomThetaDeg += dThetaRad * (180.0f / 3.14159265f);
+  while (odomThetaDeg > 180.0f) {
+    odomThetaDeg -= 360.0f;
+  }
+  while (odomThetaDeg < -180.0f) {
+    odomThetaDeg += 360.0f;
+  }
+}
+
 void updateDriveControl() {
   unsigned long now = millis();
   if (lastDriveControlMs == 0) {
@@ -293,6 +314,7 @@ void updateDriveControl() {
 
   motor1.measuredRpm = rpmFromCounts(counts1, elapsedMs);
   motor2.measuredRpm = rpmFromCounts(counts2, elapsedMs);
+  updateOdometry(counts1, counts2);
 
   float elapsedSec = elapsedMs / 1000.0f;
 
@@ -309,11 +331,20 @@ void updateDriveControl() {
   lastDriveControlMs = now;
 }
 
+float forkHeightMm() {
+  return (float)(forkSteps - FORK_STEPS_MIN) * FORK_LEAD_MM / (float)FORK_STEPS_PER_REV;
+}
+
+float forkTravelMaxMm() {
+  return (float)(FORK_STEPS_MAX - FORK_STEPS_MIN) * FORK_LEAD_MM / (float)FORK_STEPS_PER_REV;
+}
+
 float forkHeightPercent() {
-  if (FORK_STEPS_MAX <= FORK_STEPS_MIN) {
+  float maxMm = forkTravelMaxMm();
+  if (maxMm <= 0.0f) {
     return 0.0f;
   }
-  float pct = (float)(forkSteps - FORK_STEPS_MIN) * 100.0f / (float)(FORK_STEPS_MAX - FORK_STEPS_MIN);
+  float pct = forkHeightMm() * 100.0f / maxMm;
   if (pct < 0.0f) {
     return 0.0f;
   }
@@ -323,102 +354,52 @@ float forkHeightPercent() {
   return pct;
 }
 
-const char* fsmName() {
-  const char* states[] = {
-    "IDLE", "SCAN_TAGS", "NAV_TO_WAYPOINT", "ALIGN_FORK",
-    "LIFT_PALLET", "TRANSPORT", "DROP_PALLET"
-  };
-  const int count = 7;
-  if (!autonomous) {
-    return "MANUAL";
-  }
-  return states[fsmIndex % count];
-}
-
 void sendTelemetry() {
-  telemetryTick++;
   unsigned long upSec = (millis() - bootMs) / 1000UL;
 
-  simX += 0.008f;
-  simY += 0.006f;
-  simTh += 0.4f;
-  if (simTh > 180.0f) {
-    simTh -= 360.0f;
-  }
-  simBat += (telemetryTick % 2 == 0) ? -0.05f : 0.04f;
-  if (simBat < 18.0f) {
-    simBat = 18.0f;
-  }
-  if (simBat > 100.0f) {
-    simBat = 100.0f;
-  }
-
-  float v = 20.0f + (simBat / 100.0f) * 5.2f;
-  float tl = 36.0f + (telemetryTick % 10) * 0.35f;
-  float tr = 35.0f + (telemetryTick % 8) * 0.32f;
-  float load = autonomous ? 14.5f + (telemetryTick % 5) : 0.0f;
-  int rssi = -52 - (int)(telemetryTick % 7);
-  int imu = (telemetryTick % 47 == 0) ? 0 : 1;
-
-  float lv = 0.0f;
-  float av = 0.0f;
-  if (driveMode == DRIVE_FORWARD || driveMode == DRIVE_BACKWARD) {
-    lv = (motor1.measuredRpm + motor2.measuredRpm) * 0.5f / MAX_MOTOR_RPM * 0.35f;
-  } else if (driveMode == DRIVE_LEFT || driveMode == DRIVE_RIGHT) {
-    av = (motor2.measuredRpm - motor1.measuredRpm) * 0.5f / MAX_MOTOR_RPM * 0.9f;
-  }
-
-  int tag = 0;
-  int tid = -1;
-  float tdist = -1.0f;
-
-  if (autonomous) {
-    if (telemetryTick % 5 == 0) {
-      fsmIndex = (fsmIndex + 1) % 7;
-    }
-    if (telemetryTick % 3 != 0) {
-      tag = 1;
-      tid = (int)(telemetryTick % 7);
-      tdist = 0.55f + (telemetryTick % 10) * 0.12f;
-    }
-  }
+  float vLeft = motor1.measuredRpm * RPM_TO_MPS;
+  float vRight = motor2.measuredRpm * RPM_TO_MPS;
+  float lv = (vLeft + vRight) * 0.5f;
+  float av = (vRight - vLeft) / TRACK_WIDTH_M;
 
   Serial.print(F("T bat="));
-  Serial.print(simBat, 1);
+  Serial.print(0, 1);
   Serial.print(F(" v="));
-  Serial.print(v, 2);
+  Serial.print(0, 2);
   Serial.print(F(" tl="));
-  Serial.print(tl, 1);
+  Serial.print(0, 1);
   Serial.print(F(" tr="));
-  Serial.print(tr, 1);
+  Serial.print(0, 1);
   Serial.print(F(" x="));
-  Serial.print(simX, 2);
+  Serial.print(odomX, 2);
   Serial.print(F(" y="));
-  Serial.print(simY, 2);
+  Serial.print(odomY, 2);
   Serial.print(F(" th="));
-  Serial.print(simTh, 1);
+  Serial.print(odomThetaDeg, 1);
   Serial.print(F(" lv="));
   Serial.print(lv, 2);
   Serial.print(F(" av="));
   Serial.print(av, 2);
   Serial.print(F(" fork="));
   Serial.print(forkHeightPercent(), 0);
+  Serial.print(F(" fmm="));
+  Serial.print(forkHeightMm(), 1);
   Serial.print(F(" load="));
-  Serial.print(load, 1);
+  Serial.print(0, 1);
   Serial.print(F(" up="));
   Serial.print(upSec);
   Serial.print(F(" rssi="));
-  Serial.print(rssi);
+  Serial.print(0);
   Serial.print(F(" imu="));
-  Serial.print(imu);
+  Serial.print(0);
   Serial.print(F(" tag="));
-  Serial.print(tag);
+  Serial.print(0);
   Serial.print(F(" tid="));
-  Serial.print(tid);
+  Serial.print(-1);
   Serial.print(F(" tdist="));
-  Serial.print(tdist, 2);
+  Serial.print(-1.0f, 2);
   Serial.print(F(" fsm="));
-  Serial.print(fsmName());
+  Serial.print(F("MANUAL"));
   Serial.print(F(" rpm1="));
   Serial.print(motor1.measuredRpm, 1);
   Serial.print(F(" rpm2="));
@@ -482,7 +463,6 @@ void handleCommand(String line) {
 
   if (line == "A 1") {
     autonomous = true;
-    fsmIndex = 0;
     sendOk(line);
     blinkLed(4);
     return;

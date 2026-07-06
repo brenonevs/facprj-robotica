@@ -52,6 +52,7 @@ export const OFFLINE_TELEMETRY = {
   motorTempLeft: 0,
   motorTempRight: 0,
   forkHeightPercent: 0,
+  forkHeightMm: 0,
   position: { x: 0, y: 0, thetaDeg: 0 },
   linearSpeed: 0,
   angularSpeed: 0,
@@ -74,6 +75,7 @@ export function telemetryFromWebSocketMessage(message) {
     motorTempLeft: Number(message.motorTempLeft ?? 0),
     motorTempRight: Number(message.motorTempRight ?? 0),
     forkHeightPercent: Number(message.forkHeightPercent ?? 0),
+    forkHeightMm: Number(message.forkHeightMm ?? 0),
     position: {
       x: Number(message.position?.x ?? 0),
       y: Number(message.position?.y ?? 0),

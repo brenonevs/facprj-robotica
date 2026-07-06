@@ -41,7 +41,8 @@ Formato: linha iniciando com `T`, pares `chave=valor` separados por espaço.
 | `th` | float | Orientação θ (graus) |
 | `lv` | float | Velocidade linear (m/s) |
 | `av` | float | Velocidade angular (rad/s) |
-| `fork` | float | Altura do garfo (%) |
+| `fork` | float | Altura do garfo (% do curso) |
+| `fmm` | float | Altura do garfo (mm, passo do fuso 19 mm/volta) |
 | `load` | float | Célula de carga (kg) |
 | `up` | int | Uptime desde boot (s) |
 | `rssi` | int | RSSI Wi‑Fi simulado (dBm) |

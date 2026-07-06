@@ -78,6 +78,7 @@ def parse_telemetry_line(line: str) -> dict | None:
         "motorTempLeft": _float(kv, "tl", 0.0),
         "motorTempRight": _float(kv, "tr", 0.0),
         "forkHeightPercent": _float(kv, "fork", 0.0),
+        "forkHeightMm": _float(kv, "fmm", 0.0),
         "position": {
             "x": _float(kv, "x", 0.0),
             "y": _float(kv, "y", 0.0),

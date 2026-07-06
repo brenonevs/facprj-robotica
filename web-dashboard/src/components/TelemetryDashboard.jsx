@@ -189,7 +189,12 @@ export function TelemetryDashboard({
             <div className="telemetry-section telemetry-section--cargo">
               <h3 className="telemetry-section-title">Garfo e carga útil</h3>
               <div className="telemetry-section-grid telemetry-section-grid--2">
-                <Metric label="Altura do garfo" value={telemetry.forkHeightPercent} unit=" %" icon={ArrowUpDown} />
+                <Metric
+                  label="Altura do garfo"
+                  value={telemetry.forkHeightMm.toFixed(1)}
+                  unit=" mm"
+                  icon={ArrowUpDown}
+                />
                 <Metric
                   label="Célula de carga"
                   value={telemetry.loadCellKg.toFixed(1)}
