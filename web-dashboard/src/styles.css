@@ -2001,10 +2001,17 @@ input {
   overflow-y: auto;
 }
 
+.autonomy-modal-controls-zone {
+  flex-shrink: 0;
+  padding: 8px 20px 4px;
+  border-top: 1px solid var(--border);
+  background: rgba(10, 15, 28, 0.98);
+}
+
 .autonomy-modal-controls {
   display: grid;
   gap: 10px;
-  padding-top: 4px;
+  padding-top: 0;
 }
 
 .autonomy-modal-controls .dpad {
@@ -2059,17 +2066,59 @@ input {
 }
 
 @media (max-width: 640px) {
+  .autonomy-modal-backdrop {
+    align-items: flex-start;
+    padding: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .autonomy-modal {
+    width: 100%;
+    min-height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .autonomy-modal--manual {
+    width: 100%;
+  }
+
   .autonomy-modal-body {
     padding: 10px 16px 8px;
+    overflow: visible;
+    flex: none;
   }
 
   .autonomy-modal-camera .camera-feed-frame {
     max-height: min(22vh, 180px);
   }
 
+  .autonomy-modal--manual .autonomy-modal-camera .camera-feed-frame {
+    max-height: min(16vh, 120px);
+  }
+
+  .autonomy-modal--manual .autonomy-stepper {
+    display: none;
+  }
+
+  .autonomy-modal--manual .autonomy-modal-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .autonomy-modal-controls-zone {
+    padding: 8px 16px 4px;
+  }
+
+  .autonomy-modal-controls-zone .dpad {
+    width: min(260px, 100%);
+  }
+
   .autonomy-modal-actions {
     grid-template-columns: 1fr;
-    padding: 0 16px 12px;
+    padding: 0 16px max(12px, env(safe-area-inset-bottom));
   }
 
   .autonomy-stepper {

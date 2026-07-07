@@ -56,8 +56,8 @@ function parseScanSetting(value, { min, max }) {
   return parsed;
 }
 
-const SCAN_DURATION_LIMITS = { min: 0.1, max: 3 };
-const SCAN_INTERVAL_LIMITS = { min: 0, max: 5 };
+const SCAN_DURATION_LIMITS = { min: 1, max: 30 };
+const SCAN_INTERVAL_LIMITS = { min: 0.1, max: 5 };
 
 function ScanSettingsFields({ idPrefix, duration, interval, disabled, onDurationChange, onIntervalChange }) {
   return (
@@ -65,23 +65,23 @@ function ScanSettingsFields({ idPrefix, duration, interval, disabled, onDuration
       <span className="card-kicker">Busca da tag</span>
       <div className="autonomy-scan-settings-grid">
         <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-duration`}>
-          <span className="autonomy-tag-field-label">Duração de cada giro (s)</span>
+          <span className="autonomy-tag-field-label">Tempo máximo do giro 360° (s)</span>
           <input
             id={`${idPrefix}-scan-duration`}
             className="field-input"
             type="number"
             min={SCAN_DURATION_LIMITS.min}
             max={SCAN_DURATION_LIMITS.max}
-            step="0.05"
+            step="0.1"
             inputMode="decimal"
-            placeholder="0.6"
+            placeholder="8"
             value={duration}
             disabled={disabled}
             onChange={(event) => onDurationChange(event.target.value)}
           />
         </label>
         <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-interval`}>
-          <span className="autonomy-tag-field-label">Pausa entre giros (s)</span>
+          <span className="autonomy-tag-field-label">Avanço entre giros (s)</span>
           <input
             id={`${idPrefix}-scan-interval`}
             className="field-input"
@@ -90,7 +90,7 @@ function ScanSettingsFields({ idPrefix, duration, interval, disabled, onDuration
             max={SCAN_INTERVAL_LIMITS.max}
             step="0.05"
             inputMode="decimal"
-            placeholder="0.45"
+            placeholder="0.6"
             value={interval}
             disabled={disabled}
             onChange={(event) => onIntervalChange(event.target.value)}
@@ -117,8 +117,8 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   } = autonomy;
   const [palletizeTagId, setPalletizeTagId] = useState("");
   const [depalletizeTagId, setDepalletizeTagId] = useState("");
-  const [scanDuration, setScanDuration] = useState("0.6");
-  const [scanInterval, setScanInterval] = useState("0.45");
+  const [scanDuration, setScanDuration] = useState("8");
+  const [scanInterval, setScanInterval] = useState("0.6");
 
   const showStart = fsmState === "IDLE";
   const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
@@ -216,19 +216,21 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
 
             {alert ? <p className="autonomy-modal-alert">{alert}</p> : null}
 
-            {manualControlAllowed ? (
-              <ManualControls
-                disabled={disabled}
-                onCommand={onCommand}
-                className="autonomy-modal-controls"
-              />
-            ) : null}
-
             {!manualControlAllowed && fsmState !== "IDLE" ? (
               <p className="autonomy-modal-hint">Controles manuais bloqueados durante navegação autônoma.</p>
             ) : null}
           </div>
         </div>
+
+        {manualControlAllowed ? (
+          <div className="autonomy-modal-controls-zone">
+            <ManualControls
+              disabled={disabled}
+              onCommand={onCommand}
+              className="autonomy-modal-controls"
+            />
+          </div>
+        ) : null}
 
         <div className="autonomy-modal-actions">
           {showStart ? (

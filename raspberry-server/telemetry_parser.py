@@ -101,7 +101,11 @@ def parse_telemetry_line(line: str) -> dict | None:
     }
 
 
-def build_simulated_telemetry_line(tick: int, autonomous: bool = False) -> str:
+def build_simulated_telemetry_line(
+    tick: int,
+    autonomous: bool = False,
+    theta_deg: float | None = None,
+) -> str:
     t = tick
     bat = 87.0 + math.sin(t / 17.0) * 2.5
     v = 20.0 + (bat / 100.0) * 5.2
@@ -109,7 +113,7 @@ def build_simulated_telemetry_line(tick: int, autonomous: bool = False) -> str:
     tr = 35.0 + math.cos(t / 8.0) * 3.5
     x = 1.2 + math.sin(t / 13.0) * 0.35
     y = 0.4 + math.cos(t / 11.0) * 0.28
-    th = 4.5 + math.sin(t / 9.0) * 12.0
+    th = 4.5 + math.sin(t / 9.0) * 12.0 if theta_deg is None else theta_deg
     fork = 42.0 + math.sin(t / 11.0) * 18.0
     load = max(0.0, 8.0 + math.sin(t / 5.0) * 6.0)
     rssi = int(-52 + math.sin(t / 9.0) * 6.0)

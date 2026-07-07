@@ -73,6 +73,7 @@ async def telemetry_forward_loop() -> None:
         if payload is None:
             print(f"[telemetry] Linha inválida do Arduino: {line}")
             continue
+        bridge.update_telemetry(payload)
         payload["fsmState"] = autonomy_controller.fsm_state
         clients = len(connected_clients)
         print(f"[telemetry] Arduino → Pi ({clients} cliente(s) WS): {line}")

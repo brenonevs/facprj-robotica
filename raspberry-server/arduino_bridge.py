@@ -41,6 +41,10 @@ class ArduinoBridge:
         self._recent_lines: deque[str] = deque(maxlen=32)
         self._sim_autonomous = False
         self._sim_tick = 0
+        self._sim_heading_deg = 0.0
+        self._sim_active_motor: str | None = None
+        self._latest_heading_deg: float | None = None
+        self._latest_imu_ok = False
         self._sim_thread: threading.Thread | None = None
 
     @property
@@ -119,6 +123,8 @@ class ArduinoBridge:
         self._simulate = enabled
         self._sim_autonomous = False
         self._sim_tick = 0
+        self._sim_heading_deg = 0.0
+        self._sim_active_motor = None
         self._recent_lines.clear()
 
         try:
@@ -132,11 +138,28 @@ class ArduinoBridge:
             return True, f"Arduino real conectado em {self.port}."
         return False, f"Modo real ativo, mas falha ao abrir {self.port}."
 
+    def get_heading_deg(self) -> float | None:
+        return self._latest_heading_deg
+
+    def is_heading_available(self) -> bool:
+        return self._latest_heading_deg is not None and self._latest_imu_ok
+
+    def update_telemetry(self, payload: dict) -> None:
+        position = payload.get("position") or {}
+        theta = position.get("thetaDeg")
+        if theta is not None:
+            self._latest_heading_deg = float(theta)
+        self._latest_imu_ok = bool(payload.get("imuOk"))
+
     def send_action(self, action: str) -> tuple[bool, str | None]:
         line = ACTION_TO_LINE.get(action)
         if line is None:
             return False, f"Ação desconhecida: {action}"
         if self._simulate:
+            if action in ("turn_left", "turn_right", "move_forward", "move_backward"):
+                self._sim_active_motor = action
+            elif action == "stop":
+                self._sim_active_motor = None
             if line == "A 1":
                 self._sim_autonomous = True
             elif line == "A 0":
@@ -209,8 +232,16 @@ class ArduinoBridge:
     def _sim_telemetry_loop(self) -> None:
         while not self._stop_event.is_set():
             self._sim_tick += 1
-            line = build_simulated_telemetry_line(self._sim_tick, self._sim_autonomous)
+            if self._sim_active_motor == "turn_left":
+                self._sim_heading_deg = (self._sim_heading_deg + 36.0) % 360.0
+            line = build_simulated_telemetry_line(
+                self._sim_tick,
+                self._sim_autonomous,
+                theta_deg=self._sim_heading_deg,
+            )
             self._push_line(line)
+            self._latest_heading_deg = self._sim_heading_deg
+            self._latest_imu_ok = True
             time.sleep(1.0)
 
 
