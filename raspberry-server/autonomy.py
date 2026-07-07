@@ -95,7 +95,6 @@ SCAN_ROTATE_SUBPHASE_WAIT = "wait"
 SCAN_ROTATE_SUBPHASE_TURN = "turn"
 
 SCAN_PHASE_ROTATE = "rotate"
-SCAN_PHASE_SETTLE_AFTER_ROTATE = "settle_after_rotate"
 SCAN_PHASE_FORWARD = "forward"
 SCAN_PHASE_SETTLE_AFTER_FORWARD = "settle_after_forward"
 
@@ -138,10 +137,10 @@ class AutonomyController:
         self.nav_forward_wait_s = _env_float("AUTONOMY_NAV_FORWARD_WAIT_S", 0.3)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
-        self.scan_rotate_pulse_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.6)
+        self.scan_rotate_pulse_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.4)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
         self.scan_forward_pulse_s = _env_float("AUTONOMY_SCAN_FORWARD_PULSE_S", 0.6)
-        self.scan_pulses_per_360 = _env_int("AUTONOMY_SCAN_PULSES_PER_360", 24)
+        self.scan_pulses_per_360 = _env_int("AUTONOMY_SCAN_PULSES_PER_360", 25)
         self.loop_hz = _env_int("AUTONOMY_LOOP_HZ", 10)
         self._fsm_state = FSM_OFF
         self._first_tag_id: int | None = None
@@ -151,7 +150,7 @@ class AutonomyController:
         self._scan_started_at: float | None = None
         self._scan_phase = SCAN_PHASE_ROTATE
         self._scan_phase_at = 0.0
-        self._scan_action_end_at = 0.0
+        self._scan_forward_end_at: float | None = None
         self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_rotate_subphase_at = 0.0
@@ -217,6 +216,8 @@ class AutonomyController:
             "scanForwardPulseS": self.scan_forward_pulse_s,
             "scanPulsesPer360": self.scan_pulses_per_360,
             "scanSweepEstimatedS": self._estimated_scan_sweep_s(),
+            "scanPhase": self._scan_phase,
+            "scanTurnPulsesCompleted": self._scan_turn_pulses_completed,
             "alert": self._alert,
         }
 
@@ -226,7 +227,8 @@ class AutonomyController:
         payload = self.build_payload()
         key = (
             f"{payload['fsmState']}|{payload['targetTagId']}|"
-            f"{payload['currentDistanceM']}|{payload['alert']}|{payload['manualControlAllowed']}"
+            f"{payload['currentDistanceM']}|{payload['alert']}|{payload['manualControlAllowed']}|"
+            f"{payload['scanPhase']}|{payload['scanTurnPulsesCompleted']}"
         )
         if not force and key == self._last_payload_key:
             return
@@ -389,7 +391,7 @@ class AutonomyController:
     def _reset_scan_rotation(self) -> None:
         self._scan_phase = SCAN_PHASE_ROTATE
         self._scan_phase_at = time.monotonic()
-        self._scan_action_end_at = 0.0
+        self._scan_forward_end_at = None
         self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_rotate_subphase_at = time.monotonic()
@@ -498,13 +500,22 @@ class AutonomyController:
 
         await self._tick_scan_rotation()
 
+    async def _start_scan_forward(self, now: float) -> None:
+        self._last_motor_action = None
+        await self._send_motor("move_forward")
+        self._scan_forward_end_at = now + self.scan_forward_pulse_s
+
     async def _finish_scan_rotation(self, now: float) -> None:
         await self._ensure_stop()
-        self._scan_action_end_at = 0.0
         self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
-        self._scan_phase = SCAN_PHASE_SETTLE_AFTER_ROTATE
+        self._scan_phase = SCAN_PHASE_FORWARD
         self._scan_phase_at = now
+        print(
+            f"[autonomy] Volta completa ({self.scan_pulses_per_360} passos) "
+            f"— avançando por {self.scan_forward_pulse_s:g}s"
+        )
+        await self._start_scan_forward(now)
 
     async def _tick_scan_rotation(self) -> None:
         now = time.monotonic()
@@ -536,25 +547,17 @@ class AutonomyController:
 
             return
 
-        if self._scan_phase == SCAN_PHASE_SETTLE_AFTER_ROTATE:
-            await self._ensure_stop()
-            if now - self._scan_phase_at < SCAN_SETTLE_S:
-                return
-            self._scan_phase = SCAN_PHASE_FORWARD
-            self._scan_phase_at = now
-            return
-
         if self._scan_phase == SCAN_PHASE_FORWARD:
-            if self._scan_action_end_at == 0.0:
-                await self._send_motor("move_forward")
-                self._scan_action_end_at = now + self.scan_forward_pulse_s
+            if self._scan_forward_end_at is None:
+                await self._start_scan_forward(now)
                 return
-            if now < self._scan_action_end_at:
+            if now < self._scan_forward_end_at:
                 return
             await self._ensure_stop()
-            self._scan_action_end_at = 0.0
+            self._scan_forward_end_at = None
             self._scan_phase = SCAN_PHASE_SETTLE_AFTER_FORWARD
             self._scan_phase_at = now
+            print("[autonomy] Avanço concluído — iniciando novo giro 360°")
             return
 
         if self._scan_phase == SCAN_PHASE_SETTLE_AFTER_FORWARD:

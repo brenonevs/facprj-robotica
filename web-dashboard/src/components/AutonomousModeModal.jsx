@@ -100,7 +100,7 @@ function ScanSettingsFields({
             max={SCAN_DURATION_LIMITS.max}
             step="0.05"
             inputMode="decimal"
-            placeholder="0.6"
+            placeholder="0.4"
             value={duration}
             disabled={disabled}
             onChange={(event) => onDurationChange(event.target.value)}
@@ -132,7 +132,7 @@ function ScanSettingsFields({
             max={SCAN_PULSES_LIMITS.max}
             step="1"
             inputMode="numeric"
-            placeholder="24"
+            placeholder="25"
             value={pulses}
             disabled={disabled}
             onChange={(event) => onPulsesChange(event.target.value)}
@@ -180,10 +180,10 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   } = autonomy;
   const [palletizeTagId, setPalletizeTagId] = useState("");
   const [depalletizeTagId, setDepalletizeTagId] = useState("");
-  const [scanDuration, setScanDuration] = useState("0.6");
+  const [scanDuration, setScanDuration] = useState("0.4");
   const [scanInterval, setScanInterval] = useState("0.45");
   const [scanForward, setScanForward] = useState("0.6");
-  const [scanPulses, setScanPulses] = useState("24");
+  const [scanPulses, setScanPulses] = useState("25");
 
   const showStart = fsmState === "IDLE";
   const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
