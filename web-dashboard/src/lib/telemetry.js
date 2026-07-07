@@ -15,6 +15,8 @@ export const OFFLINE_AUTONOMY = {
   scanSweepEstimatedS: 21.25,
   scanPhase: "rotate",
   scanTurnPulsesCompleted: 0,
+  undoPulsesRemaining: 0,
+  catetoTargetM: null,
   alert: null,
 };
 
@@ -22,11 +24,15 @@ export const FSM_STATE_LABELS = {
   OFF: "Desligado",
   IDLE: "Aguardando início",
   SCAN_TAG_1: "Buscando tag de paletização",
-  ALIGN_TAG_1: "Alinhando tag de paletização",
+  UNDO_SCAN_TAG_1: "Reposicionando após busca (tag 1)",
+  MOVE_CATETO_TAG_1: "Percorrendo cateto (tag 1)",
+  TURN_TO_TAG_1: "Alinhando com tag de paletização",
   NAV_TO_TAG_1: "Navegando até paletização",
   MANUAL_PALLETIZE: "Paletização manual",
   SCAN_TAG_2: "Buscando tag de despaletização",
-  ALIGN_TAG_2: "Alinhando tag de despaletização",
+  UNDO_SCAN_TAG_2: "Reposicionando após busca (tag 2)",
+  MOVE_CATETO_TAG_2: "Percorrendo cateto (tag 2)",
+  TURN_TO_TAG_2: "Alinhando com tag de despaletização",
   NAV_TO_TAG_2: "Navegando até despaletização",
   MANUAL_DEPALLETIZE: "Despaletização manual",
 };
@@ -58,6 +64,11 @@ export function autonomyFromWebSocketMessage(message) {
     scanSweepEstimatedS: Number(message.scanSweepEstimatedS ?? 21.25),
     scanPhase: String(message.scanPhase ?? "rotate"),
     scanTurnPulsesCompleted: Number(message.scanTurnPulsesCompleted ?? 0),
+    undoPulsesRemaining: Number(message.undoPulsesRemaining ?? 0),
+    catetoTargetM:
+      message.catetoTargetM === null || message.catetoTargetM === undefined
+        ? null
+        : Number(message.catetoTargetM),
     alert: message.alert ?? null,
   };
 }

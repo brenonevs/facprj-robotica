@@ -10,11 +10,15 @@ from vision import vision_service
 FSM_OFF = "OFF"
 FSM_IDLE = "IDLE"
 FSM_SCAN_TAG_1 = "SCAN_TAG_1"
-FSM_ALIGN_TAG_1 = "ALIGN_TAG_1"
+FSM_UNDO_SCAN_TAG_1 = "UNDO_SCAN_TAG_1"
+FSM_MOVE_CATETO_TAG_1 = "MOVE_CATETO_TAG_1"
+FSM_TURN_TO_TAG_1 = "TURN_TO_TAG_1"
 FSM_NAV_TO_TAG_1 = "NAV_TO_TAG_1"
 FSM_MANUAL_PALLETIZE = "MANUAL_PALLETIZE"
 FSM_SCAN_TAG_2 = "SCAN_TAG_2"
-FSM_ALIGN_TAG_2 = "ALIGN_TAG_2"
+FSM_UNDO_SCAN_TAG_2 = "UNDO_SCAN_TAG_2"
+FSM_MOVE_CATETO_TAG_2 = "MOVE_CATETO_TAG_2"
+FSM_TURN_TO_TAG_2 = "TURN_TO_TAG_2"
 FSM_NAV_TO_TAG_2 = "NAV_TO_TAG_2"
 FSM_MANUAL_DEPALLETIZE = "MANUAL_DEPALLETIZE"
 
@@ -22,11 +26,15 @@ FSM_STATES = [
     FSM_OFF,
     FSM_IDLE,
     FSM_SCAN_TAG_1,
-    FSM_ALIGN_TAG_1,
+    FSM_UNDO_SCAN_TAG_1,
+    FSM_MOVE_CATETO_TAG_1,
+    FSM_TURN_TO_TAG_1,
     FSM_NAV_TO_TAG_1,
     FSM_MANUAL_PALLETIZE,
     FSM_SCAN_TAG_2,
-    FSM_ALIGN_TAG_2,
+    FSM_UNDO_SCAN_TAG_2,
+    FSM_MOVE_CATETO_TAG_2,
+    FSM_TURN_TO_TAG_2,
     FSM_NAV_TO_TAG_2,
     FSM_MANUAL_DEPALLETIZE,
 ]
@@ -55,10 +63,14 @@ MANUAL_MOTOR_ACTIONS = frozenset(
 ACTIVE_NAV_STATES = frozenset(
     {
         FSM_SCAN_TAG_1,
-        FSM_ALIGN_TAG_1,
+        FSM_UNDO_SCAN_TAG_1,
+        FSM_MOVE_CATETO_TAG_1,
+        FSM_TURN_TO_TAG_1,
         FSM_NAV_TO_TAG_1,
         FSM_SCAN_TAG_2,
-        FSM_ALIGN_TAG_2,
+        FSM_UNDO_SCAN_TAG_2,
+        FSM_MOVE_CATETO_TAG_2,
+        FSM_TURN_TO_TAG_2,
         FSM_NAV_TO_TAG_2,
     }
 )
@@ -68,11 +80,15 @@ MANUAL_CONTROL_STATES = frozenset({FSM_MANUAL_PALLETIZE, FSM_MANUAL_DEPALLETIZE}
 CYCLE_STEP_BY_STATE = {
     FSM_IDLE: 0,
     FSM_SCAN_TAG_1: 1,
-    FSM_ALIGN_TAG_1: 2,
+    FSM_UNDO_SCAN_TAG_1: 2,
+    FSM_MOVE_CATETO_TAG_1: 2,
+    FSM_TURN_TO_TAG_1: 2,
     FSM_NAV_TO_TAG_1: 3,
     FSM_MANUAL_PALLETIZE: 4,
     FSM_SCAN_TAG_2: 5,
-    FSM_ALIGN_TAG_2: 6,
+    FSM_UNDO_SCAN_TAG_2: 6,
+    FSM_MOVE_CATETO_TAG_2: 6,
+    FSM_TURN_TO_TAG_2: 6,
     FSM_NAV_TO_TAG_2: 7,
     FSM_MANUAL_DEPALLETIZE: 8,
 }
@@ -100,6 +116,12 @@ SCAN_PHASE_SETTLE_AFTER_FORWARD = "settle_after_forward"
 
 ALIGN_ROTATE_PHASE_WAIT = "wait"
 ALIGN_ROTATE_PHASE_TURN = "turn"
+
+UNDO_ROTATE_SUBPHASE_WAIT = "wait"
+UNDO_ROTATE_SUBPHASE_TURN = "turn"
+
+CATETO_PHASE_FORWARD_WAIT = "forward_wait"
+CATETO_PHASE_FORWARD_MOVE = "forward_move"
 
 NAV_PHASE_FORWARD_WAIT = "forward_wait"
 NAV_PHASE_FORWARD_MOVE = "forward_move"
@@ -136,6 +158,11 @@ class AutonomyController:
         self.nav_forward_pulse_s = _env_float("AUTONOMY_NAV_FORWARD_PULSE_S", 0.6)
         self.nav_forward_wait_s = _env_float("AUTONOMY_NAV_FORWARD_WAIT_S", 0.3)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
+        self.cateto_speed_m_s = _env_float("AUTONOMY_CATETO_SPEED_M_S", 0.12)
+        self.cateto_min_m = _env_float("AUTONOMY_CATETO_MIN_M", 0.03)
+        self.cateto_forward_pulse_s = _env_float("AUTONOMY_CATETO_FORWARD_PULSE_S", 0.5)
+        self.cateto_forward_wait_s = _env_float("AUTONOMY_CATETO_FORWARD_WAIT_S", 0.25)
+        self.yaw_align_threshold_deg = _env_float("AUTONOMY_YAW_ALIGN_THRESHOLD_DEG", 5.0)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
         self.scan_rotate_pulse_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.4)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
@@ -162,6 +189,14 @@ class AutonomyController:
         self._nav_forward_pulse_end_at = 0.0
         self._nav_lost_tag_ticks = 0
         self._nav_recovery_action: str | None = None
+        self._undo_pulses_remaining = 0
+        self._undo_rotate_subphase = UNDO_ROTATE_SUBPHASE_WAIT
+        self._undo_rotate_subphase_at = 0.0
+        self._cateto_target_m = 0.0
+        self._cateto_remaining_s = 0.0
+        self._cateto_phase = CATETO_PHASE_FORWARD_WAIT
+        self._cateto_phase_at = 0.0
+        self._cateto_forward_pulse_end_at = 0.0
         self._last_motor_action: str | None = None
         self._broadcast_fn: Callable[[dict], Awaitable[None]] | None = None
         self._loop_task: asyncio.Task | None = None
@@ -218,6 +253,8 @@ class AutonomyController:
             "scanSweepEstimatedS": self._estimated_scan_sweep_s(),
             "scanPhase": self._scan_phase,
             "scanTurnPulsesCompleted": self._scan_turn_pulses_completed,
+            "undoPulsesRemaining": self._undo_pulses_remaining,
+            "catetoTargetM": self._cateto_target_m,
             "alert": self._alert,
         }
 
@@ -228,7 +265,8 @@ class AutonomyController:
         key = (
             f"{payload['fsmState']}|{payload['targetTagId']}|"
             f"{payload['currentDistanceM']}|{payload['alert']}|{payload['manualControlAllowed']}|"
-            f"{payload['scanPhase']}|{payload['scanTurnPulsesCompleted']}"
+            f"{payload['scanPhase']}|{payload['scanTurnPulsesCompleted']}|"
+            f"{payload['undoPulsesRemaining']}|{payload['catetoTargetM']}"
         )
         if not force and key == self._last_payload_key:
             return
@@ -383,7 +421,9 @@ class AutonomyController:
         self._current_distance_m = None
         self._scan_started_at = None
         self._reset_scan_rotation()
+        self._reset_undo_rotation()
         self._reset_align_rotation()
+        self._reset_cateto_move()
         self._reset_nav_approach()
         self._nav_lost_tag_ticks = 0
         self._nav_recovery_action = None
@@ -400,6 +440,18 @@ class AutonomyController:
         self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_rotate_subphase_at = time.monotonic()
+
+    def _reset_undo_rotation(self) -> None:
+        self._undo_pulses_remaining = 0
+        self._undo_rotate_subphase = UNDO_ROTATE_SUBPHASE_WAIT
+        self._undo_rotate_subphase_at = time.monotonic()
+
+    def _reset_cateto_move(self) -> None:
+        self._cateto_target_m = 0.0
+        self._cateto_remaining_s = 0.0
+        self._cateto_phase = CATETO_PHASE_FORWARD_WAIT
+        self._cateto_phase_at = time.monotonic()
+        self._cateto_forward_pulse_end_at = 0.0
 
     def _reset_align_rotation(self) -> None:
         self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
@@ -474,20 +526,32 @@ class AutonomyController:
         self,
         tags: list[dict],
         *,
-        next_state: str,
+        undo_state: str,
     ) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)
         if tag is not None:
             tag_id = int(tag["id"])
             self._current_distance_m = float(tag.get("distance_m", 0))
-            self._fsm_state = next_state
+            self._cateto_target_m = self._lateral_cateto_m(tag)
+            undo_pulses = self._scan_turn_pulses_completed
+            if (
+                self._scan_phase == SCAN_PHASE_ROTATE
+                and self._scan_rotate_subphase == SCAN_ROTATE_SUBPHASE_TURN
+            ):
+                undo_pulses += 1
+            self._undo_pulses_remaining = undo_pulses
+            self._undo_rotate_subphase = UNDO_ROTATE_SUBPHASE_WAIT
+            self._undo_rotate_subphase_at = time.monotonic()
+            self._fsm_state = undo_state
             self._nav_lost_tag_ticks = 0
             self._nav_recovery_action = None
             self._scan_started_at = None
-            self._reset_scan_rotation()
             self._reset_align_rotation()
             await self._ensure_stop()
-            print(f"[autonomy] Tag #{tag_id} detectada → {next_state}")
+            print(
+                f"[autonomy] Tag #{tag_id} detectada → {undo_state} "
+                f"(desfazer {self._undo_pulses_remaining} pulso(s), cateto {self._cateto_target_m:.2f} m)"
+            )
             return
 
         if self._scan_started_at is not None:
@@ -576,6 +640,18 @@ class AutonomyController:
                 return tag
         return None
 
+    def _lateral_cateto_m(self, tag: dict) -> float:
+        x = float(tag.get("x", 0))
+        z = float(tag.get("z", 0))
+        distance_m = float(tag.get("distance_m", 0))
+        if distance_m < 1e-6:
+            return abs(x)
+        if abs(z) <= 0.05:
+            bearing_rad = math.copysign(math.pi / 2, x) if x != 0 else 0.0
+        else:
+            bearing_rad = math.atan2(x, z)
+        return abs(distance_m * math.sin(bearing_rad))
+
     def _bearing_deg_from_tag(self, tag: dict) -> float:
         x = float(tag.get("x", 0))
         z = float(tag.get("z", 0))
@@ -586,12 +662,144 @@ class AutonomyController:
     def _is_tag_centered(self, tag: dict) -> bool:
         return abs(self._bearing_deg_from_tag(tag)) <= self.align_center_threshold_deg
 
-    def _align_pulse_duration_s(self, bearing_deg: float) -> float:
-        ratio = min(1.0, abs(bearing_deg) / 35.0)
+    def _yaw_deg_from_tag(self, tag: dict) -> float:
+        return float(tag.get("yaw_deg", 0))
+
+    def _is_tag_yaw_aligned(self, tag: dict) -> bool:
+        return abs(self._yaw_deg_from_tag(tag)) <= self.yaw_align_threshold_deg
+
+    def _yaw_turn_action(self, yaw_deg: float) -> str:
+        return "turn_right" if yaw_deg > 0 else "turn_left"
+
+    def _align_pulse_duration_s(self, angle_deg: float) -> float:
+        ratio = min(1.0, abs(angle_deg) / 35.0)
         return self.align_pulse_min_s + ratio * (self.align_pulse_max_s - self.align_pulse_min_s)
 
-    def _align_turn_action(self, bearing_deg: float) -> str:
+    def _bearing_turn_action(self, bearing_deg: float) -> str:
         return "turn_right" if bearing_deg > 0 else "turn_left"
+
+    async def _handle_tag_lost(self, *, rescan_state: str) -> None:
+        self._alert = "AprilTag perdida — retomando busca."
+        self._fsm_state = rescan_state
+        self._scan_started_at = time.monotonic()
+        self._reset_scan_rotation()
+        self._reset_undo_rotation()
+        self._reset_align_rotation()
+        self._reset_cateto_move()
+        self._reset_nav_approach()
+        self._nav_lost_tag_ticks = 0
+        self._nav_recovery_action = None
+        self._current_distance_m = None
+        await self._ensure_stop()
+
+    async def _tick_undo_scan(self, *, cateto_state: str, turn_state: str) -> None:
+        now = time.monotonic()
+
+        if self._undo_pulses_remaining <= 0:
+            await self._ensure_stop()
+            self._reset_cateto_move()
+            if self._cateto_target_m < self.cateto_min_m:
+                self._fsm_state = turn_state
+                print(f"[autonomy] Cateto desprezível ({self._cateto_target_m:.2f} m) → {turn_state}")
+            else:
+                speed = max(self.cateto_speed_m_s, 0.01)
+                self._cateto_remaining_s = self._cateto_target_m / speed
+                self._fsm_state = cateto_state
+                print(
+                    f"[autonomy] Desfazer busca concluído → {cateto_state} "
+                    f"(cateto {self._cateto_target_m:.2f} m, ~{self._cateto_remaining_s:.1f} s)"
+                )
+            return
+
+        if self._undo_rotate_subphase == UNDO_ROTATE_SUBPHASE_WAIT:
+            await self._ensure_stop()
+            if now - self._undo_rotate_subphase_at < self.scan_rotate_interval_s:
+                return
+            await self._send_motor("turn_right")
+            self._undo_rotate_subphase = UNDO_ROTATE_SUBPHASE_TURN
+            self._undo_rotate_subphase_at = now
+            return
+
+        if now - self._undo_rotate_subphase_at < self.scan_rotate_pulse_s:
+            return
+
+        await self._ensure_stop()
+        self._undo_pulses_remaining -= 1
+        self._undo_rotate_subphase = UNDO_ROTATE_SUBPHASE_WAIT
+        self._undo_rotate_subphase_at = now
+
+    async def _tick_move_cateto(self, tags: list[dict], *, next_state: str, rescan_state: str) -> None:
+        tag = self._find_tag_by_id(tags, self._target_tag_id)
+        if tag is not None:
+            self._nav_lost_tag_ticks = 0
+            self._current_distance_m = float(tag.get("distance_m", 999))
+        else:
+            self._nav_lost_tag_ticks += 1
+            if self._nav_lost_tag_ticks >= self.nav_lost_tag_ticks:
+                await self._handle_tag_lost(rescan_state=rescan_state)
+                return
+            await self._ensure_stop()
+            return
+
+        now = time.monotonic()
+
+        if self._cateto_remaining_s <= 0:
+            await self._ensure_stop()
+            self._reset_align_rotation()
+            self._fsm_state = next_state
+            print(f"[autonomy] Cateto percorrido → {next_state}")
+            return
+
+        if self._cateto_phase == CATETO_PHASE_FORWARD_WAIT:
+            await self._ensure_stop()
+            if now - self._cateto_phase_at < self.cateto_forward_wait_s:
+                return
+            await self._send_motor("move_forward")
+            self._cateto_phase = CATETO_PHASE_FORWARD_MOVE
+            self._cateto_phase_at = now
+            pulse_s = min(self.cateto_forward_pulse_s, self._cateto_remaining_s)
+            self._cateto_forward_pulse_end_at = now + pulse_s
+            return
+
+        if now < self._cateto_forward_pulse_end_at:
+            return
+
+        await self._ensure_stop()
+        elapsed = now - self._cateto_phase_at
+        self._cateto_remaining_s = max(0.0, self._cateto_remaining_s - elapsed)
+        self._cateto_phase = CATETO_PHASE_FORWARD_WAIT
+        self._cateto_phase_at = now
+
+    async def _tick_turn_to_tag(
+        self,
+        tags: list[dict],
+        *,
+        nav_state: str,
+        rescan_state: str,
+    ) -> None:
+        tag = self._find_tag_by_id(tags, self._target_tag_id)
+        if tag is None:
+            self._nav_lost_tag_ticks += 1
+            if self._nav_lost_tag_ticks >= self.nav_lost_tag_ticks:
+                await self._handle_tag_lost(rescan_state=rescan_state)
+                return
+            await self._ensure_stop()
+            return
+
+        self._nav_lost_tag_ticks = 0
+        self._current_distance_m = float(tag.get("distance_m", 999))
+        yaw_deg = self._yaw_deg_from_tag(tag)
+
+        if self._is_tag_yaw_aligned(tag):
+            self._fsm_state = nav_state
+            self._nav_recovery_action = None
+            self._reset_align_rotation()
+            self._reset_nav_approach()
+            await self._ensure_stop()
+            print(f"[autonomy] Tag #{self._target_tag_id} alinhada (yaw) → {nav_state}")
+            return
+
+        await self._tick_align_pulse(yaw_deg, turn_action_fn=self._yaw_turn_action)
 
     async def _run_loop(self) -> None:
         interval = 1.0 / max(1, self.loop_hz)
@@ -617,13 +825,43 @@ class AutonomyController:
         tags = vision_state.get("tags") or []
 
         if self._fsm_state == FSM_SCAN_TAG_1:
-            await self._tick_scan(tags, next_state=FSM_ALIGN_TAG_1)
+            await self._tick_scan(tags, undo_state=FSM_UNDO_SCAN_TAG_1)
         elif self._fsm_state == FSM_SCAN_TAG_2:
-            await self._tick_scan(tags, next_state=FSM_ALIGN_TAG_2)
-        elif self._fsm_state == FSM_ALIGN_TAG_1:
-            await self._tick_align(tags, nav_state=FSM_NAV_TO_TAG_1, rescan_state=FSM_SCAN_TAG_1)
-        elif self._fsm_state == FSM_ALIGN_TAG_2:
-            await self._tick_align(tags, nav_state=FSM_NAV_TO_TAG_2, rescan_state=FSM_SCAN_TAG_2)
+            await self._tick_scan(tags, undo_state=FSM_UNDO_SCAN_TAG_2)
+        elif self._fsm_state == FSM_UNDO_SCAN_TAG_1:
+            await self._tick_undo_scan(
+                cateto_state=FSM_MOVE_CATETO_TAG_1,
+                turn_state=FSM_TURN_TO_TAG_1,
+            )
+        elif self._fsm_state == FSM_UNDO_SCAN_TAG_2:
+            await self._tick_undo_scan(
+                cateto_state=FSM_MOVE_CATETO_TAG_2,
+                turn_state=FSM_TURN_TO_TAG_2,
+            )
+        elif self._fsm_state == FSM_MOVE_CATETO_TAG_1:
+            await self._tick_move_cateto(
+                tags,
+                next_state=FSM_TURN_TO_TAG_1,
+                rescan_state=FSM_SCAN_TAG_1,
+            )
+        elif self._fsm_state == FSM_MOVE_CATETO_TAG_2:
+            await self._tick_move_cateto(
+                tags,
+                next_state=FSM_TURN_TO_TAG_2,
+                rescan_state=FSM_SCAN_TAG_2,
+            )
+        elif self._fsm_state == FSM_TURN_TO_TAG_1:
+            await self._tick_turn_to_tag(
+                tags,
+                nav_state=FSM_NAV_TO_TAG_1,
+                rescan_state=FSM_SCAN_TAG_1,
+            )
+        elif self._fsm_state == FSM_TURN_TO_TAG_2:
+            await self._tick_turn_to_tag(
+                tags,
+                nav_state=FSM_NAV_TO_TAG_2,
+                rescan_state=FSM_SCAN_TAG_2,
+            )
         elif self._fsm_state == FSM_NAV_TO_TAG_1:
             await self._tick_nav(tags, rescan_state=FSM_SCAN_TAG_1)
         elif self._fsm_state == FSM_NAV_TO_TAG_2:
@@ -631,15 +869,21 @@ class AutonomyController:
 
         await self.broadcast_state()
 
-    async def _tick_align_pulse(self, bearing_deg: float) -> None:
+    async def _tick_align_pulse(
+        self,
+        angle_deg: float,
+        *,
+        turn_action_fn: Callable[[float], str] | None = None,
+    ) -> None:
         now = time.monotonic()
+        resolve_turn = turn_action_fn or self._bearing_turn_action
 
         if self._align_rotate_phase == ALIGN_ROTATE_PHASE_WAIT:
             await self._ensure_stop()
             if now - self._align_rotate_phase_at < self.align_wait_s:
                 return
-            pulse_s = self._align_pulse_duration_s(bearing_deg)
-            await self._send_motor(self._align_turn_action(bearing_deg))
+            pulse_s = self._align_pulse_duration_s(angle_deg)
+            await self._send_motor(resolve_turn(angle_deg))
             self._align_rotate_phase = ALIGN_ROTATE_PHASE_TURN
             self._align_rotate_phase_at = now
             self._align_pulse_end_at = now + pulse_s
@@ -650,55 +894,12 @@ class AutonomyController:
             self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
             self._align_rotate_phase_at = now
 
-    async def _tick_align(self, tags: list[dict], *, nav_state: str, rescan_state: str) -> None:
-        tag = self._find_tag_by_id(tags, self._target_tag_id)
-        if tag is None:
-            self._nav_lost_tag_ticks += 1
-            if self._nav_lost_tag_ticks >= self.nav_lost_tag_ticks:
-                self._alert = "AprilTag perdida — retomando busca."
-                self._fsm_state = rescan_state
-                self._scan_started_at = time.monotonic()
-                self._reset_scan_rotation()
-                self._reset_align_rotation()
-                self._nav_lost_tag_ticks = 0
-                self._nav_recovery_action = None
-                self._current_distance_m = None
-                await self._ensure_stop()
-                return
-
-            await self._ensure_stop()
-            return
-
-        self._nav_lost_tag_ticks = 0
-        self._current_distance_m = float(tag.get("distance_m", 999))
-        bearing_deg = self._bearing_deg_from_tag(tag)
-
-        if self._is_tag_centered(tag):
-            self._fsm_state = nav_state
-            self._nav_recovery_action = None
-            self._reset_align_rotation()
-            self._reset_nav_approach()
-            await self._ensure_stop()
-            print(f"[autonomy] Tag #{self._target_tag_id} centralizada → {nav_state}")
-            return
-
-        await self._tick_align_pulse(bearing_deg)
-
     async def _tick_nav(self, tags: list[dict], *, rescan_state: str) -> None:
         tag = self._find_tag_by_id(tags, self._target_tag_id)
         if tag is None:
             self._nav_lost_tag_ticks += 1
             if self._nav_lost_tag_ticks >= self.nav_lost_tag_ticks:
-                self._alert = "AprilTag perdida — retomando busca."
-                self._fsm_state = rescan_state
-                self._scan_started_at = time.monotonic()
-                self._reset_scan_rotation()
-                self._reset_align_rotation()
-                self._reset_nav_approach()
-                self._nav_lost_tag_ticks = 0
-                self._nav_recovery_action = None
-                self._current_distance_m = None
-                await self._ensure_stop()
+                await self._handle_tag_lost(rescan_state=rescan_state)
                 return
 
             await self._ensure_stop()
