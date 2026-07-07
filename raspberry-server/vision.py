@@ -31,6 +31,16 @@ AXIS_POINTS = np.array(
 AT_DETECTOR = Detector(families="tag25h9")
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name, "").strip().lower()
     if not raw:
@@ -136,6 +146,10 @@ class VisionService:
     def __init__(self) -> None:
         self._disabled = _env_bool("VISION_DISABLE", False)
         self._camera_index = int(os.environ.get("VISION_CAMERA_INDEX", "0"))
+        self._capture_width = _env_int("VISION_CAPTURE_WIDTH", 640)
+        self._capture_height = _env_int("VISION_CAPTURE_HEIGHT", 480)
+        self._stream_fps = _env_int("VISION_STREAM_FPS", 15)
+        self._jpeg_quality = _env_int("VISION_JPEG_QUALITY", 55)
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._latest_jpeg: bytes | None = None
@@ -193,12 +207,27 @@ class VisionService:
             print("[vision] ERRO: Câmera não encontrada.")
             return
 
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._capture_width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._capture_height)
+
         self._active = True
-        print(f"[vision] Câmera aberta (índice {self._camera_index})")
+        frame_interval = 1.0 / max(1, self._stream_fps)
+        print(
+            f"[vision] Câmera aberta (índice {self._camera_index}, "
+            f"{self._capture_width}x{self._capture_height} @ {self._stream_fps} fps)"
+        )
         new_camera_matrix: np.ndarray | None = None
+        next_frame_at = time.monotonic()
 
         try:
             while not self._stop.is_set():
+                now = time.monotonic()
+                if now < next_frame_at:
+                    time.sleep(min(0.01, next_frame_at - now))
+                    continue
+                next_frame_at = now + frame_interval
+
                 ret, frame = cap.read()
                 if not ret:
                     print("[vision] ERRO: Falha ao capturar frame.")
@@ -241,11 +270,14 @@ class VisionService:
 
                 _draw_tags(undistorted, results, new_camera_matrix)
                 ok, encoded = cv2.imencode(
-                    ".jpg", undistorted, [int(cv2.IMWRITE_JPEG_QUALITY), 72]
+                    ".jpg",
+                    undistorted,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality],
                 )
                 if ok:
+                    jpeg_bytes = encoded.tobytes()
                     with self._lock:
-                        self._latest_jpeg = encoded.tobytes()
+                        self._latest_jpeg = jpeg_bytes
         finally:
             cap.release()
             self._active = False
@@ -274,6 +306,7 @@ class VisionService:
                 self.end_headers()
 
                 try:
+                    frame_interval = 1.0 / max(1, service._stream_fps)
                     while not service._stop.is_set():
                         jpeg = service.get_latest_jpeg()
                         if jpeg is None:
@@ -284,7 +317,7 @@ class VisionService:
                         self.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode())
                         self.wfile.write(jpeg)
                         self.wfile.write(b"\r\n")
-                        time.sleep(1 / 24)
+                        time.sleep(frame_interval)
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     pass
 
