@@ -1,18 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Video, VideoOff } from "lucide-react";
 import { createCameraStreamUrl } from "../services/websocket.js";
 
-export function CameraFeed({ ip, connected, autonomousMode, streamEnabled = true }) {
+export function CameraFeed({ ip, connected, autonomousMode }) {
   const [streamError, setStreamError] = useState(false);
-  const errorReportedRef = useRef(false);
-  const streamUrl =
-    connected && ip.trim() && streamEnabled ? createCameraStreamUrl(ip.trim()) : null;
+  const streamUrl = connected && ip.trim() ? createCameraStreamUrl(ip.trim()) : null;
 
   useEffect(() => {
     setStreamError(false);
-    errorReportedRef.current = false;
-  }, [ip, connected, streamEnabled]);
-
+  }, [ip, connected]);
   const showStream = streamUrl && !streamError;
 
   return (
@@ -23,25 +19,13 @@ export function CameraFeed({ ip, connected, autonomousMode, streamEnabled = true
             className="camera-feed-img"
             src={streamUrl}
             alt="Câmera da empilhadeira"
-            decoding="async"
-            onError={() => {
-              if (errorReportedRef.current) {
-                return;
-              }
-              errorReportedRef.current = true;
-              setStreamError(true);
-            }}
+            onError={() => setStreamError(true)}
+            onLoad={() => setStreamError(false)}
           />
         ) : (
           <div className="camera-feed-placeholder">
             <VideoOff size={28} strokeWidth={1.8} />
-            <p>
-              {!streamEnabled
-                ? "Stream no modal de autonomia"
-                : connected
-                  ? "Stream indisponível"
-                  : "Conecte ao Raspberry Pi"}
-            </p>
+            <p>{connected ? "Stream indisponível" : "Conecte ao Raspberry Pi"}</p>
           </div>
         )}
         <div className="camera-feed-overlay">

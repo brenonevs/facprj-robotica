@@ -320,7 +320,6 @@ export function App() {
                   ip={ip}
                   connected={isConnected}
                   autonomousMode={autonomousMode}
-                  streamEnabled={!autonomousMode}
                 />
               </div>
             </section>
