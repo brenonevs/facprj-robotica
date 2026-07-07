@@ -86,7 +86,7 @@ SCAN_PULSE_MAX_S = 3.0
 SCAN_PULSE_PAUSE_MIN_S = 0.0
 SCAN_PULSE_PAUSE_MAX_S = 5.0
 SCAN_FORWARD_PULSE_MIN_S = 0.1
-SCAN_FORWARD_PULSE_MAX_S = 5.0
+SCAN_FORWARD_PULSE_MAX_S = 10.0
 SCAN_PULSES_PER_360_MIN = 1
 SCAN_PULSES_PER_360_MAX = 200
 SCAN_SETTLE_S = 0.2
@@ -139,7 +139,7 @@ class AutonomyController:
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
         self.scan_rotate_pulse_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.4)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
-        self.scan_forward_pulse_s = _env_float("AUTONOMY_SCAN_FORWARD_PULSE_S", 0.6)
+        self.scan_forward_pulse_s = _env_float("AUTONOMY_SCAN_FORWARD_PULSE_S", 1.0)
         self.scan_pulses_per_360 = _env_int("AUTONOMY_SCAN_PULSES_PER_360", 25)
         self.loop_hz = _env_int("AUTONOMY_LOOP_HZ", 10)
         self._fsm_state = FSM_OFF

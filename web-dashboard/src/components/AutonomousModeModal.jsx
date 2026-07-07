@@ -58,7 +58,7 @@ function parseScanSetting(value, { min, max }) {
 
 const SCAN_DURATION_LIMITS = { min: 0.1, max: 3 };
 const SCAN_INTERVAL_LIMITS = { min: 0, max: 5 };
-const SCAN_FORWARD_LIMITS = { min: 0.1, max: 5 };
+const SCAN_FORWARD_LIMITS = { min: 0.1, max: 10 };
 const SCAN_PULSES_LIMITS = { min: 1, max: 200 };
 
 function parseScanPulses(value, { min, max }) {
@@ -139,16 +139,16 @@ function ScanSettingsFields({
           />
         </label>
         <label className="autonomy-tag-field autonomy-scan-settings-forward" htmlFor={`${idPrefix}-scan-forward`}>
-          <span className="autonomy-tag-field-label">Avanço entre giros 360° (s)</span>
+          <span className="autonomy-tag-field-label">Avanço entre buscas (s)</span>
           <input
             id={`${idPrefix}-scan-forward`}
             className="field-input"
             type="number"
             min={SCAN_FORWARD_LIMITS.min}
             max={SCAN_FORWARD_LIMITS.max}
-            step="0.05"
+            step="0.1"
             inputMode="decimal"
-            placeholder="0.6"
+            placeholder="1.0"
             value={forward}
             disabled={disabled}
             onChange={(event) => onForwardChange(event.target.value)}
@@ -156,7 +156,10 @@ function ScanSettingsFields({
         </label>
       </div>
       {sweepEstimatedS != null ? (
-        <p className="autonomy-scan-estimate">Tempo estimado por volta: ~{sweepEstimatedS.toFixed(1)} s</p>
+        <p className="autonomy-scan-estimate">
+          Tempo estimado por volta: ~{sweepEstimatedS.toFixed(1)} s
+          {forward.trim() ? ` · Avanço entre buscas: ${forward.trim()} s` : ""}
+        </p>
       ) : null}
     </div>
   );
@@ -182,7 +185,7 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   const [depalletizeTagId, setDepalletizeTagId] = useState("");
   const [scanDuration, setScanDuration] = useState("0.4");
   const [scanInterval, setScanInterval] = useState("0.45");
-  const [scanForward, setScanForward] = useState("0.6");
+  const [scanForward, setScanForward] = useState("1.0");
   const [scanPulses, setScanPulses] = useState("25");
 
   const showStart = fsmState === "IDLE";
