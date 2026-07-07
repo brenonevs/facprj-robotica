@@ -26,10 +26,14 @@ export function createCameraStreamUrl(ip) {
   return `http://${ip}:${CAMERA_STREAM_PORT}/stream`;
 }
 
-export function createCommandMessage(action) {
-  return {
+export function createCommandMessage(action, options = {}) {
+  const message = {
     type: "command",
     action,
     sent_at: new Date().toISOString(),
   };
+  if (options.tagId != null && options.tagId !== "") {
+    message.tagId = Number(options.tagId);
+  }
+  return message;
 }

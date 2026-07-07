@@ -223,14 +223,14 @@ export function App() {
   }, [activeTab, autonomousMode, isConnected, status]);
 
   const sendCommand = useCallback(
-    (action) => {
+    (action, options = {}) => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         addLog("Não há conexão aberta para enviar comando.", "error");
         return;
       }
 
-      const message = createCommandMessage(action);
+      const message = createCommandMessage(action, options);
       pendingRttRef.current = performance.now();
       socket.send(JSON.stringify(message));
       addLog(`Enviado: ${JSON.stringify(message)}`, "outgoing");

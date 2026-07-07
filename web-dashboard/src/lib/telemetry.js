@@ -14,13 +14,13 @@ export const OFFLINE_AUTONOMY = {
 export const FSM_STATE_LABELS = {
   OFF: "Desligado",
   IDLE: "Aguardando início",
-  SCAN_TAG_1: "Buscando 1ª AprilTag",
-  ALIGN_TAG_1: "Alinhando 1ª AprilTag",
-  NAV_TO_TAG_1: "Navegando até 1ª tag",
+  SCAN_TAG_1: "Buscando tag de paletização",
+  ALIGN_TAG_1: "Alinhando tag de paletização",
+  NAV_TO_TAG_1: "Navegando até paletização",
   MANUAL_PALLETIZE: "Paletização manual",
-  SCAN_TAG_2: "Buscando 2ª AprilTag",
-  ALIGN_TAG_2: "Alinhando 2ª AprilTag",
-  NAV_TO_TAG_2: "Navegando até 2ª tag",
+  SCAN_TAG_2: "Buscando tag de despaletização",
+  ALIGN_TAG_2: "Alinhando tag de despaletização",
+  NAV_TO_TAG_2: "Navegando até despaletização",
   MANUAL_DEPALLETIZE: "Despaletização manual",
 };
 

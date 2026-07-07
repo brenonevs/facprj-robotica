@@ -122,9 +122,15 @@ async def handle_client(websocket: ServerConnection) -> None:
                 continue
 
             action = message.get("action", "unknown")
+            tag_id = message.get("tagId")
+            if tag_id is not None:
+                try:
+                    tag_id = int(tag_id)
+                except (TypeError, ValueError):
+                    tag_id = None
 
             if action in AUTONOMY_ACTIONS:
-                ok, detail = await autonomy_controller.handle_action(action)
+                ok, detail = await autonomy_controller.handle_action(action, tag_id=tag_id)
                 if not ok:
                     await websocket.send(
                         json_message(

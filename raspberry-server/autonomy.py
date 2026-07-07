@@ -207,15 +207,15 @@ class AutonomyController:
         self._last_payload_key = key
         await self._broadcast_fn(payload)
 
-    async def handle_action(self, action: str) -> tuple[bool, str]:
+    async def handle_action(self, action: str, tag_id: int | None = None) -> tuple[bool, str]:
         if action == "start_autonomous_mode":
             return await self._start_autonomous_mode()
         if action == "stop_autonomous_mode":
             return await self._stop_autonomous_mode()
         if action == "start_autonomous_cycle":
-            return await self._start_cycle()
+            return await self._start_cycle(tag_id)
         if action == "confirm_palletize_done":
-            return await self._confirm_palletize()
+            return await self._confirm_palletize(tag_id)
         if action == "confirm_depalletize_done":
             return await self._confirm_depalletize()
         return False, f"Ação de autonomia desconhecida: {action}"
@@ -252,22 +252,32 @@ class AutonomyController:
         await self.broadcast_state(force=True)
         return True, "Modo autônomo desativado."
 
-    async def _start_cycle(self) -> tuple[bool, str]:
+    async def _start_cycle(self, tag_id: int | None) -> tuple[bool, str]:
         if self._fsm_state != FSM_IDLE:
             return False, f"Ciclo só pode iniciar em IDLE (atual: {self._fsm_state})."
+        if tag_id is None:
+            return False, "Informe o ID da AprilTag para paletização."
+        if tag_id < 0:
+            return False, "ID da AprilTag inválido."
         self._reset_cycle()
+        self._first_tag_id = tag_id
+        self._target_tag_id = tag_id
         self._fsm_state = FSM_SCAN_TAG_1
         self._scan_started_at = time.monotonic()
         self._reset_scan_rotation()
         self._alert = None
         await self._ensure_stop()
         await self.broadcast_state(force=True)
-        return True, "Ciclo autônomo iniciado — buscando 1ª AprilTag."
+        return True, f"Ciclo autônomo iniciado — buscando AprilTag #{tag_id}."
 
-    async def _confirm_palletize(self) -> tuple[bool, str]:
+    async def _confirm_palletize(self, tag_id: int | None) -> tuple[bool, str]:
         if self._fsm_state != FSM_MANUAL_PALLETIZE:
             return False, f"Confirmação inválida no estado {self._fsm_state}."
-        self._target_tag_id = None
+        if tag_id is None:
+            return False, "Informe o ID da AprilTag para despaletização."
+        if tag_id < 0:
+            return False, "ID da AprilTag inválido."
+        self._target_tag_id = tag_id
         self._current_distance_m = None
         self._fsm_state = FSM_SCAN_TAG_2
         self._scan_started_at = time.monotonic()
@@ -277,7 +287,7 @@ class AutonomyController:
         self._alert = None
         await self._ensure_stop()
         await self.broadcast_state(force=True)
-        return True, "Paletização confirmada — buscando 2ª AprilTag."
+        return True, f"Paletização confirmada — buscando AprilTag #{tag_id}."
 
     async def _confirm_depalletize(self) -> tuple[bool, str]:
         if self._fsm_state != FSM_MANUAL_DEPALLETIZE:
@@ -326,13 +336,52 @@ class AutonomyController:
         await asyncio.to_thread(bridge.send_action, action)
         self._last_motor_action = action
 
-    def _find_tag(self, tags: list[dict], *, exclude_id: int | None = None) -> dict | None:
-        for tag in tags:
-            tag_id = int(tag.get("id", -1))
-            if exclude_id is not None and tag_id == exclude_id:
-                continue
-            return tag
-        return None
+    async def _tick_scan(
+        self,
+        tags: list[dict],
+        *,
+        next_state: str,
+    ) -> None:
+        tag = self._find_tag_by_id(tags, self._target_tag_id)
+        if tag is not None:
+            tag_id = int(tag["id"])
+            self._current_distance_m = float(tag.get("distance_m", 0))
+            self._fsm_state = next_state
+            self._nav_lost_tag_ticks = 0
+            self._nav_recovery_action = None
+            self._scan_started_at = None
+            self._reset_scan_rotation()
+            self._reset_align_rotation()
+            await self._ensure_stop()
+            print(f"[autonomy] Tag #{tag_id} detectada → {next_state}")
+            return
+
+        if self._scan_started_at is not None:
+            elapsed = time.monotonic() - self._scan_started_at
+            if elapsed > self.scan_timeout_s:
+                target = self._target_tag_id
+                self._alert = f"Tempo esgotado buscando AprilTag #{target}."
+                await self._ensure_stop()
+                return
+
+        await self._tick_scan_rotation()
+
+    async def _tick_scan_rotation(self) -> None:
+        now = time.monotonic()
+
+        if self._scan_rotate_phase == SCAN_ROTATE_PHASE_WAIT:
+            await self._ensure_stop()
+            if now - self._scan_rotate_phase_at < self.scan_rotate_interval_s:
+                return
+            await self._send_motor("turn_left")
+            self._scan_rotate_phase = SCAN_ROTATE_PHASE_TURN
+            self._scan_rotate_phase_at = now
+            return
+
+        if now - self._scan_rotate_phase_at >= self.scan_rotate_duration_s:
+            await self._ensure_stop()
+            self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
+            self._scan_rotate_phase_at = now
 
     def _find_tag_by_id(self, tags: list[dict], tag_id: int | None) -> dict | None:
         if tag_id is None:
@@ -383,14 +432,9 @@ class AutonomyController:
         tags = vision_state.get("tags") or []
 
         if self._fsm_state == FSM_SCAN_TAG_1:
-            await self._tick_scan(tags, exclude_id=None, next_state=FSM_ALIGN_TAG_1, lock_as_first=True)
+            await self._tick_scan(tags, next_state=FSM_ALIGN_TAG_1)
         elif self._fsm_state == FSM_SCAN_TAG_2:
-            await self._tick_scan(
-                tags,
-                exclude_id=self._first_tag_id,
-                next_state=FSM_ALIGN_TAG_2,
-                lock_as_first=False,
-            )
+            await self._tick_scan(tags, next_state=FSM_ALIGN_TAG_2)
         elif self._fsm_state == FSM_ALIGN_TAG_1:
             await self._tick_align(tags, nav_state=FSM_NAV_TO_TAG_1, rescan_state=FSM_SCAN_TAG_1)
         elif self._fsm_state == FSM_ALIGN_TAG_2:
@@ -401,57 +445,6 @@ class AutonomyController:
             await self._tick_nav(tags, rescan_state=FSM_SCAN_TAG_2)
 
         await self.broadcast_state()
-
-    async def _tick_scan(
-        self,
-        tags: list[dict],
-        *,
-        exclude_id: int | None,
-        next_state: str,
-        lock_as_first: bool,
-    ) -> None:
-        tag = self._find_tag(tags, exclude_id=exclude_id)
-        if tag is not None:
-            tag_id = int(tag["id"])
-            self._target_tag_id = tag_id
-            if lock_as_first:
-                self._first_tag_id = tag_id
-            self._current_distance_m = float(tag.get("distance_m", 0))
-            self._fsm_state = next_state
-            self._nav_lost_tag_ticks = 0
-            self._nav_recovery_action = None
-            self._scan_started_at = None
-            self._reset_scan_rotation()
-            self._reset_align_rotation()
-            await self._ensure_stop()
-            print(f"[autonomy] Tag #{tag_id} detectada → {next_state}")
-            return
-
-        if self._scan_started_at is not None:
-            elapsed = time.monotonic() - self._scan_started_at
-            if elapsed > self.scan_timeout_s:
-                self._alert = "Tempo esgotado buscando AprilTag."
-                await self._ensure_stop()
-                return
-
-        await self._tick_scan_rotation()
-
-    async def _tick_scan_rotation(self) -> None:
-        now = time.monotonic()
-
-        if self._scan_rotate_phase == SCAN_ROTATE_PHASE_WAIT:
-            await self._ensure_stop()
-            if now - self._scan_rotate_phase_at < self.scan_rotate_interval_s:
-                return
-            await self._send_motor("turn_left")
-            self._scan_rotate_phase = SCAN_ROTATE_PHASE_TURN
-            self._scan_rotate_phase_at = now
-            return
-
-        if now - self._scan_rotate_phase_at >= self.scan_rotate_duration_s:
-            await self._ensure_stop()
-            self._scan_rotate_phase = SCAN_ROTATE_PHASE_WAIT
-            self._scan_rotate_phase_at = now
 
     async def _tick_align_pulse(self, bearing_deg: float) -> None:
         now = time.monotonic()

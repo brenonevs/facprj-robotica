@@ -1993,6 +1993,29 @@ input {
   line-height: 1.35;
 }
 
+.autonomy-modal--manual {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.autonomy-modal--manual .autonomy-modal-body {
+  overflow-y: auto;
+}
+
+.autonomy-modal-controls {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.autonomy-modal-controls .dpad {
+  max-width: 240px;
+  margin-inline: auto;
+}
+
+.autonomy-modal-controls .extra-controls {
+  margin: 0;
+}
+
 .autonomy-modal-hint--ok {
   color: #99f6e4;
 }
@@ -2003,6 +2026,21 @@ input {
   gap: 8px;
   flex-shrink: 0;
   padding: 0 20px 14px;
+}
+
+.autonomy-modal-actions-span {
+  grid-column: 1 / -1;
+}
+
+.autonomy-tag-field {
+  display: grid;
+  gap: 6px;
+}
+
+.autonomy-tag-field-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .autonomy-modal-actions:has(:only-child) {

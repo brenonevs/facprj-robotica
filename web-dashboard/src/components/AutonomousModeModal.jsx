@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Bot,
   CheckCircle2,
@@ -10,6 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { CameraFeed } from "./CameraFeed.jsx";
+import { ManualControls } from "./ManualControls.jsx";
 import { FSM_STATE_LABELS } from "../lib/telemetry.js";
 
 const STEPS = [
@@ -30,9 +32,23 @@ function formatDistance(value) {
   return `${Number(value).toFixed(2)} m`;
 }
 
+function parseTagId(value) {
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
 export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connected }) {
-  const { enabled, fsmState, targetTagId, targetDistanceM, currentDistanceM, manualControlAllowed, cycleStep, alert } =
+  const { enabled, fsmState, targetTagId, firstTagId, targetDistanceM, currentDistanceM, manualControlAllowed, cycleStep, alert } =
     autonomy;
+  const [palletizeTagId, setPalletizeTagId] = useState("");
+  const [depalletizeTagId, setDepalletizeTagId] = useState("");
 
   if (!enabled) {
     return null;
@@ -42,11 +58,13 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   const showStart = fsmState === "IDLE";
   const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
   const showDepalletizeDone = fsmState === "MANUAL_DEPALLETIZE";
+  const parsedPalletizeTagId = parseTagId(palletizeTagId);
+  const parsedDepalletizeTagId = parseTagId(depalletizeTagId);
 
   return (
     <div className="autonomy-modal-backdrop" role="presentation">
       <section
-        className="autonomy-modal"
+        className={`autonomy-modal ${manualControlAllowed ? "autonomy-modal--manual" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="autonomy-modal-title"
@@ -94,6 +112,12 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
                 <span className="autonomy-metric-k">Tag alvo</span>
                 <span className="autonomy-metric-v">{targetTagId != null ? `#${targetTagId}` : "—"}</span>
               </div>
+              {firstTagId != null ? (
+                <div className="autonomy-metric">
+                  <span className="autonomy-metric-k">Tag paletização</span>
+                  <span className="autonomy-metric-v">#{firstTagId}</span>
+                </div>
+              ) : null}
               <div className="autonomy-metric">
                 <span className="autonomy-metric-k">Distância atual</span>
                 <span className="autonomy-metric-v">{formatDistance(currentDistanceM)}</span>
@@ -106,40 +130,76 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
 
             {alert ? <p className="autonomy-modal-alert">{alert}</p> : null}
 
-            {!manualControlAllowed && fsmState !== "IDLE" ? (
-              <p className="autonomy-modal-hint">Controles manuais bloqueados durante navegação autônoma.</p>
+            {manualControlAllowed ? (
+              <ManualControls
+                disabled={disabled}
+                onCommand={onCommand}
+                className="autonomy-modal-controls"
+              />
             ) : null}
 
-            {manualControlAllowed ? (
-              <p className="autonomy-modal-hint autonomy-modal-hint--ok">
-                Controles manuais disponíveis para esta etapa.
-              </p>
+            {!manualControlAllowed && fsmState !== "IDLE" ? (
+              <p className="autonomy-modal-hint">Controles manuais bloqueados durante navegação autônoma.</p>
             ) : null}
           </div>
         </div>
 
         <div className="autonomy-modal-actions">
           {showStart ? (
-            <button
-              className="btn btn-autonomous btn-full"
-              type="button"
-              disabled={disabled}
-              onClick={() => onCommand("start_autonomous_cycle")}
-            >
-              <Play size={18} />
-              Iniciar
-            </button>
+            <>
+              <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="palletize-tag-id">
+                <span className="autonomy-tag-field-label">ID da AprilTag para paletização</span>
+                <input
+                  id="palletize-tag-id"
+                  className="field-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  placeholder="Ex.: 0"
+                  value={palletizeTagId}
+                  disabled={disabled}
+                  onChange={(event) => setPalletizeTagId(event.target.value)}
+                />
+              </label>
+              <button
+                className="btn btn-autonomous btn-full autonomy-modal-actions-span"
+                type="button"
+                disabled={disabled || parsedPalletizeTagId == null}
+                onClick={() => onCommand("start_autonomous_cycle", { tagId: parsedPalletizeTagId })}
+              >
+                <Play size={18} />
+                Iniciar
+              </button>
+            </>
           ) : null}
           {showPalletizeDone ? (
-            <button
-              className="btn btn-autonomous btn-full"
-              type="button"
-              disabled={disabled}
-              onClick={() => onCommand("confirm_palletize_done")}
-            >
-              <CheckCircle2 size={18} />
-              Paletização concluída
-            </button>
+            <>
+              <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="depalletize-tag-id">
+                <span className="autonomy-tag-field-label">ID da AprilTag para despaletização</span>
+                <input
+                  id="depalletize-tag-id"
+                  className="field-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  placeholder="Ex.: 1"
+                  value={depalletizeTagId}
+                  disabled={disabled}
+                  onChange={(event) => setDepalletizeTagId(event.target.value)}
+                />
+              </label>
+              <button
+                className="btn btn-autonomous btn-full autonomy-modal-actions-span"
+                type="button"
+                disabled={disabled || parsedDepalletizeTagId == null}
+                onClick={() => onCommand("confirm_palletize_done", { tagId: parsedDepalletizeTagId })}
+              >
+                <CheckCircle2 size={18} />
+                Paletização concluída
+              </button>
+            </>
           ) : null}
           {showDepalletizeDone ? (
             <button
