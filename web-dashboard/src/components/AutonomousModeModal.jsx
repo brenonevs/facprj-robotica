@@ -59,16 +59,32 @@ function parseScanSetting(value, { min, max }) {
 const SCAN_DURATION_LIMITS = { min: 0.1, max: 3 };
 const SCAN_INTERVAL_LIMITS = { min: 0, max: 5 };
 const SCAN_FORWARD_LIMITS = { min: 0.1, max: 5 };
+const SCAN_PULSES_LIMITS = { min: 1, max: 200 };
+
+function parseScanPulses(value, { min, max }) {
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    return null;
+  }
+  return parsed;
+}
 
 function ScanSettingsFields({
   idPrefix,
   duration,
   interval,
   forward,
+  pulses,
+  sweepEstimatedS,
   disabled,
   onDurationChange,
   onIntervalChange,
   onForwardChange,
+  onPulsesChange,
 }) {
   return (
     <div className="autonomy-scan-settings autonomy-modal-actions-span">
@@ -106,6 +122,22 @@ function ScanSettingsFields({
             onChange={(event) => onIntervalChange(event.target.value)}
           />
         </label>
+        <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-pulses`}>
+          <span className="autonomy-tag-field-label">Passos por volta (360°)</span>
+          <input
+            id={`${idPrefix}-scan-pulses`}
+            className="field-input"
+            type="number"
+            min={SCAN_PULSES_LIMITS.min}
+            max={SCAN_PULSES_LIMITS.max}
+            step="1"
+            inputMode="numeric"
+            placeholder="24"
+            value={pulses}
+            disabled={disabled}
+            onChange={(event) => onPulsesChange(event.target.value)}
+          />
+        </label>
         <label className="autonomy-tag-field autonomy-scan-settings-forward" htmlFor={`${idPrefix}-scan-forward`}>
           <span className="autonomy-tag-field-label">Avanço entre giros 360° (s)</span>
           <input
@@ -123,6 +155,9 @@ function ScanSettingsFields({
           />
         </label>
       </div>
+      {sweepEstimatedS != null ? (
+        <p className="autonomy-scan-estimate">Tempo estimado por volta: ~{sweepEstimatedS.toFixed(1)} s</p>
+      ) : null}
     </div>
   );
 }
@@ -140,6 +175,7 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
     scanRotateDurationS,
     scanRotateIntervalS,
     scanForwardPulseS,
+    scanPulsesPer360,
     alert,
   } = autonomy;
   const [palletizeTagId, setPalletizeTagId] = useState("");
@@ -147,6 +183,7 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   const [scanDuration, setScanDuration] = useState("0.6");
   const [scanInterval, setScanInterval] = useState("0.45");
   const [scanForward, setScanForward] = useState("0.6");
+  const [scanPulses, setScanPulses] = useState("24");
 
   const showStart = fsmState === "IDLE";
   const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
@@ -159,7 +196,16 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
     setScanDuration(String(scanRotateDurationS));
     setScanInterval(String(scanRotateIntervalS));
     setScanForward(String(scanForwardPulseS));
-  }, [enabled, showStart, showPalletizeDone, scanRotateDurationS, scanRotateIntervalS, scanForwardPulseS]);
+    setScanPulses(String(scanPulsesPer360));
+  }, [
+    enabled,
+    showStart,
+    showPalletizeDone,
+    scanRotateDurationS,
+    scanRotateIntervalS,
+    scanForwardPulseS,
+    scanPulsesPer360,
+  ]);
 
   if (!enabled) {
     return null;
@@ -171,12 +217,21 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   const parsedScanDuration = parseScanSetting(scanDuration, SCAN_DURATION_LIMITS);
   const parsedScanInterval = parseScanSetting(scanInterval, SCAN_INTERVAL_LIMITS);
   const parsedScanForward = parseScanSetting(scanForward, SCAN_FORWARD_LIMITS);
+  const parsedScanPulses = parseScanPulses(scanPulses, SCAN_PULSES_LIMITS);
   const scanSettingsValid =
-    parsedScanDuration != null && parsedScanInterval != null && parsedScanForward != null;
+    parsedScanDuration != null &&
+    parsedScanInterval != null &&
+    parsedScanForward != null &&
+    parsedScanPulses != null;
+  const localSweepEstimatedS =
+    parsedScanDuration != null && parsedScanInterval != null && parsedScanPulses != null
+      ? parsedScanPulses * (parsedScanDuration + parsedScanInterval)
+      : null;
   const scanOptions = {
     scanRotateDurationS: parsedScanDuration,
     scanRotateIntervalS: parsedScanInterval,
     scanForwardPulseS: parsedScanForward,
+    scanPulsesPer360: parsedScanPulses,
   };
 
   return (
@@ -272,10 +327,13 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
                 duration={scanDuration}
                 interval={scanInterval}
                 forward={scanForward}
+                pulses={scanPulses}
+                sweepEstimatedS={localSweepEstimatedS}
                 disabled={disabled}
                 onDurationChange={setScanDuration}
                 onIntervalChange={setScanInterval}
                 onForwardChange={setScanForward}
+                onPulsesChange={setScanPulses}
               />
               <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="palletize-tag-id">
                 <span className="autonomy-tag-field-label">ID da AprilTag para paletização</span>
@@ -312,10 +370,13 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
                 duration={scanDuration}
                 interval={scanInterval}
                 forward={scanForward}
+                pulses={scanPulses}
+                sweepEstimatedS={localSweepEstimatedS}
                 disabled={disabled}
                 onDurationChange={setScanDuration}
                 onIntervalChange={setScanInterval}
                 onForwardChange={setScanForward}
+                onPulsesChange={setScanPulses}
               />
               <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="depalletize-tag-id">
                 <span className="autonomy-tag-field-label">ID da AprilTag para despaletização</span>

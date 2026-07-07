@@ -87,11 +87,9 @@ SCAN_PULSE_PAUSE_MIN_S = 0.0
 SCAN_PULSE_PAUSE_MAX_S = 5.0
 SCAN_FORWARD_PULSE_MIN_S = 0.1
 SCAN_FORWARD_PULSE_MAX_S = 5.0
-SCAN_SWEEP_TIMEOUT_MIN_S = 5.0
-SCAN_SWEEP_TIMEOUT_MAX_S = 120.0
+SCAN_PULSES_PER_360_MIN = 1
+SCAN_PULSES_PER_360_MAX = 200
 SCAN_SETTLE_S = 0.2
-SCAN_ROTATION_TARGET_DEG = 360.0
-SCAN_ROTATION_TOLERANCE_DEG = 3.0
 
 SCAN_ROTATE_SUBPHASE_WAIT = "wait"
 SCAN_ROTATE_SUBPHASE_TURN = "turn"
@@ -143,7 +141,7 @@ class AutonomyController:
         self.scan_rotate_pulse_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.6)
         self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
         self.scan_forward_pulse_s = _env_float("AUTONOMY_SCAN_FORWARD_PULSE_S", 0.6)
-        self.scan_sweep_timeout_s = _env_float("AUTONOMY_SCAN_FULL_ROTATION_S", 30.0)
+        self.scan_pulses_per_360 = _env_int("AUTONOMY_SCAN_PULSES_PER_360", 24)
         self.loop_hz = _env_int("AUTONOMY_LOOP_HZ", 10)
         self._fsm_state = FSM_OFF
         self._first_tag_id: int | None = None
@@ -154,10 +152,7 @@ class AutonomyController:
         self._scan_phase = SCAN_PHASE_ROTATE
         self._scan_phase_at = 0.0
         self._scan_action_end_at = 0.0
-        self._scan_rotation_reference_deg: float | None = None
-        self._scan_rotation_last_deg: float | None = None
-        self._scan_rotation_accumulated_deg = 0.0
-        self._scan_rotation_started_at: float | None = None
+        self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_rotate_subphase_at = 0.0
         self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
@@ -220,6 +215,8 @@ class AutonomyController:
             "scanRotateDurationS": self.scan_rotate_pulse_s,
             "scanRotateIntervalS": self.scan_rotate_interval_s,
             "scanForwardPulseS": self.scan_forward_pulse_s,
+            "scanPulsesPer360": self.scan_pulses_per_360,
+            "scanSweepEstimatedS": self._estimated_scan_sweep_s(),
             "alert": self._alert,
         }
 
@@ -243,6 +240,7 @@ class AutonomyController:
         scan_rotate_duration_s: float | None = None,
         scan_rotate_interval_s: float | None = None,
         scan_forward_pulse_s: float | None = None,
+        scan_pulses_per_360: int | None = None,
     ) -> tuple[bool, str]:
         if action == "start_autonomous_mode":
             return await self._start_autonomous_mode()
@@ -254,6 +252,7 @@ class AutonomyController:
                 scan_rotate_duration_s,
                 scan_rotate_interval_s,
                 scan_forward_pulse_s,
+                scan_pulses_per_360,
             )
         if action == "confirm_palletize_done":
             return await self._confirm_palletize(
@@ -261,6 +260,7 @@ class AutonomyController:
                 scan_rotate_duration_s,
                 scan_rotate_interval_s,
                 scan_forward_pulse_s,
+                scan_pulses_per_360,
             )
         if action == "confirm_depalletize_done":
             return await self._confirm_depalletize()
@@ -304,6 +304,7 @@ class AutonomyController:
         scan_rotate_duration_s: float | None,
         scan_rotate_interval_s: float | None,
         scan_forward_pulse_s: float | None,
+        scan_pulses_per_360: int | None,
     ) -> tuple[bool, str]:
         if self._fsm_state != FSM_IDLE:
             return False, f"Ciclo só pode iniciar em IDLE (atual: {self._fsm_state})."
@@ -315,6 +316,7 @@ class AutonomyController:
             scan_rotate_duration_s,
             scan_rotate_interval_s,
             scan_forward_pulse_s,
+            scan_pulses_per_360,
         )
         if not ok:
             return False, detail
@@ -335,6 +337,7 @@ class AutonomyController:
         scan_rotate_duration_s: float | None,
         scan_rotate_interval_s: float | None,
         scan_forward_pulse_s: float | None,
+        scan_pulses_per_360: int | None,
     ) -> tuple[bool, str]:
         if self._fsm_state != FSM_MANUAL_PALLETIZE:
             return False, f"Confirmação inválida no estado {self._fsm_state}."
@@ -346,6 +349,7 @@ class AutonomyController:
             scan_rotate_duration_s,
             scan_rotate_interval_s,
             scan_forward_pulse_s,
+            scan_pulses_per_360,
         )
         if not ok:
             return False, detail
@@ -386,18 +390,12 @@ class AutonomyController:
         self._scan_phase = SCAN_PHASE_ROTATE
         self._scan_phase_at = time.monotonic()
         self._scan_action_end_at = 0.0
-        self._scan_rotation_reference_deg = None
-        self._scan_rotation_last_deg = None
-        self._scan_rotation_accumulated_deg = 0.0
-        self._scan_rotation_started_at = None
+        self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_rotate_subphase_at = time.monotonic()
 
     def _prepare_next_scan_sweep(self) -> None:
-        self._scan_rotation_reference_deg = None
-        self._scan_rotation_last_deg = None
-        self._scan_rotation_accumulated_deg = 0.0
-        self._scan_rotation_started_at = None
+        self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_rotate_subphase_at = time.monotonic()
 
@@ -411,11 +409,15 @@ class AutonomyController:
         self._nav_phase_at = time.monotonic()
         self._nav_forward_pulse_end_at = 0.0
 
+    def _estimated_scan_sweep_s(self) -> float:
+        return self.scan_pulses_per_360 * (self.scan_rotate_pulse_s + self.scan_rotate_interval_s)
+
     def _apply_scan_config(
         self,
         scan_rotate_duration_s: float | None,
         scan_rotate_interval_s: float | None,
         scan_forward_pulse_s: float | None,
+        scan_pulses_per_360: int | None,
     ) -> tuple[bool, str]:
         if scan_rotate_duration_s is not None:
             if not SCAN_PULSE_MIN_S <= scan_rotate_duration_s <= SCAN_PULSE_MAX_S:
@@ -441,7 +443,18 @@ class AutonomyController:
                     f"{SCAN_FORWARD_PULSE_MAX_S:g} s.",
                 )
             self.scan_forward_pulse_s = scan_forward_pulse_s
+        if scan_pulses_per_360 is not None:
+            if not SCAN_PULSES_PER_360_MIN <= scan_pulses_per_360 <= SCAN_PULSES_PER_360_MAX:
+                return (
+                    False,
+                    f"Passos por volta deve estar entre {SCAN_PULSES_PER_360_MIN} e "
+                    f"{SCAN_PULSES_PER_360_MAX}.",
+                )
+            self.scan_pulses_per_360 = scan_pulses_per_360
         return True, ""
+
+    def _is_scan_sweep_complete(self) -> bool:
+        return self._scan_turn_pulses_completed >= self.scan_pulses_per_360
 
     async def _ensure_stop(self) -> None:
         if self._last_motor_action == "stop":
@@ -485,71 +498,10 @@ class AutonomyController:
 
         await self._tick_scan_rotation()
 
-    def _normalize_deg(self, angle_deg: float) -> float:
-        normalized = angle_deg % 360.0
-        if normalized < 0:
-            normalized += 360.0
-        return normalized
-
-    def _shortest_delta_deg(self, from_deg: float, to_deg: float) -> float:
-        delta = self._normalize_deg(to_deg) - self._normalize_deg(from_deg)
-        if delta > 180.0:
-            delta -= 360.0
-        elif delta < -180.0:
-            delta += 360.0
-        return delta
-
-    def _current_heading_deg(self) -> float | None:
-        heading = bridge.get_heading_deg()
-        if heading is None:
-            return None
-        return float(heading)
-
-    def _heading_tracking_available(self) -> bool:
-        return bridge.is_heading_available()
-
-    def _begin_scan_sweep(self) -> None:
-        now = time.monotonic()
-        heading = self._current_heading_deg()
-        self._scan_rotation_started_at = now
-        self._scan_rotation_reference_deg = heading
-        self._scan_rotation_last_deg = heading
-        self._scan_rotation_accumulated_deg = 0.0
-        self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
-        self._scan_rotate_subphase_at = now
-
-    def _update_scan_rotation_progress(self) -> None:
-        heading = self._current_heading_deg()
-        if heading is None:
-            return
-        if self._scan_rotation_last_deg is None:
-            self._scan_rotation_last_deg = heading
-            if self._scan_rotation_reference_deg is None:
-                self._scan_rotation_reference_deg = heading
-            return
-        delta = self._shortest_delta_deg(self._scan_rotation_last_deg, heading)
-        self._scan_rotation_accumulated_deg += abs(delta)
-        self._scan_rotation_last_deg = heading
-
-    def _is_scan_sweep_complete(self) -> bool:
-        if not self._heading_tracking_available() or self._scan_rotation_last_deg is None:
-            return False
-        return self._scan_rotation_accumulated_deg >= (
-            SCAN_ROTATION_TARGET_DEG - SCAN_ROTATION_TOLERANCE_DEG
-        )
-
-    def _scan_rotation_timed_out(self, now: float) -> bool:
-        if self._scan_rotation_started_at is None:
-            return False
-        return now - self._scan_rotation_started_at >= self.scan_sweep_timeout_s
-
     async def _finish_scan_rotation(self, now: float) -> None:
         await self._ensure_stop()
         self._scan_action_end_at = 0.0
-        self._scan_rotation_started_at = None
-        self._scan_rotation_reference_deg = None
-        self._scan_rotation_last_deg = None
-        self._scan_rotation_accumulated_deg = 0.0
+        self._scan_turn_pulses_completed = 0
         self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_phase = SCAN_PHASE_SETTLE_AFTER_ROTATE
         self._scan_phase_at = now
@@ -558,18 +510,11 @@ class AutonomyController:
         now = time.monotonic()
 
         if self._scan_phase == SCAN_PHASE_ROTATE:
-            if self._scan_rotation_started_at is None:
-                self._begin_scan_sweep()
-
             if self._scan_rotate_subphase == SCAN_ROTATE_SUBPHASE_WAIT:
                 await self._ensure_stop()
                 if now - self._scan_rotate_subphase_at < self.scan_rotate_interval_s:
                     return
                 if self._is_scan_sweep_complete():
-                    await self._finish_scan_rotation(now)
-                    return
-                if self._scan_rotation_timed_out(now):
-                    self._alert = "Giro 360° excedeu o tempo máximo — verifique odometria/IMU."
                     await self._finish_scan_rotation(now)
                     return
                 await self._send_motor("turn_left")
@@ -581,12 +526,8 @@ class AutonomyController:
                 if now - self._scan_rotate_subphase_at < self.scan_rotate_pulse_s:
                     return
                 await self._ensure_stop()
-                self._update_scan_rotation_progress()
+                self._scan_turn_pulses_completed += 1
                 if self._is_scan_sweep_complete():
-                    await self._finish_scan_rotation(now)
-                    return
-                if self._scan_rotation_timed_out(now):
-                    self._alert = "Giro 360° excedeu o tempo máximo — verifique odometria/IMU."
                     await self._finish_scan_rotation(now)
                     return
                 self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT

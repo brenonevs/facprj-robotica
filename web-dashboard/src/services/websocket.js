@@ -44,5 +44,8 @@ export function createCommandMessage(action, options = {}) {
   if (options.scanForwardPulseS != null && options.scanForwardPulseS !== "") {
     message.scanForwardPulseS = Number(options.scanForwardPulseS);
   }
+  if (options.scanPulsesPer360 != null && options.scanPulsesPer360 !== "") {
+    message.scanPulsesPer360 = Number(options.scanPulsesPer360);
+  }
   return message;
 }

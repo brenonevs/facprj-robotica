@@ -11,6 +11,8 @@ export const OFFLINE_AUTONOMY = {
   scanRotateDurationS: 0.6,
   scanRotateIntervalS: 0.45,
   scanForwardPulseS: 0.6,
+  scanPulsesPer360: 24,
+  scanSweepEstimatedS: 25.2,
   alert: null,
 };
 
@@ -50,6 +52,8 @@ export function autonomyFromWebSocketMessage(message) {
     scanRotateDurationS: Number(message.scanRotateDurationS ?? 0.6),
     scanRotateIntervalS: Number(message.scanRotateIntervalS ?? 0.45),
     scanForwardPulseS: Number(message.scanForwardPulseS ?? 0.6),
+    scanPulsesPer360: Number(message.scanPulsesPer360 ?? 24),
+    scanSweepEstimatedS: Number(message.scanSweepEstimatedS ?? 25.2),
     alert: message.alert ?? null,
   };
 }
