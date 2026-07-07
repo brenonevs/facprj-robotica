@@ -8,8 +8,9 @@ export const OFFLINE_AUTONOMY = {
   manualControlAllowed: false,
   cycleStep: 0,
   cycleStepTotal: 8,
-  scanRotateDurationS: 8,
-  scanRotateIntervalS: 0.6,
+  scanRotateDurationS: 0.6,
+  scanRotateIntervalS: 0.45,
+  scanForwardPulseS: 0.6,
   alert: null,
 };
 
@@ -46,8 +47,9 @@ export function autonomyFromWebSocketMessage(message) {
     manualControlAllowed: Boolean(message.manualControlAllowed),
     cycleStep: Number(message.cycleStep ?? 0),
     cycleStepTotal: Number(message.cycleStepTotal ?? 8),
-    scanRotateDurationS: Number(message.scanRotateDurationS ?? 8),
-    scanRotateIntervalS: Number(message.scanRotateIntervalS ?? 0.6),
+    scanRotateDurationS: Number(message.scanRotateDurationS ?? 0.6),
+    scanRotateIntervalS: Number(message.scanRotateIntervalS ?? 0.45),
+    scanForwardPulseS: Number(message.scanForwardPulseS ?? 0.6),
     alert: message.alert ?? null,
   };
 }

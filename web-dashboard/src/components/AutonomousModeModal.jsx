@@ -56,32 +56,42 @@ function parseScanSetting(value, { min, max }) {
   return parsed;
 }
 
-const SCAN_DURATION_LIMITS = { min: 1, max: 30 };
-const SCAN_INTERVAL_LIMITS = { min: 0.1, max: 5 };
+const SCAN_DURATION_LIMITS = { min: 0.1, max: 3 };
+const SCAN_INTERVAL_LIMITS = { min: 0, max: 5 };
+const SCAN_FORWARD_LIMITS = { min: 0.1, max: 5 };
 
-function ScanSettingsFields({ idPrefix, duration, interval, disabled, onDurationChange, onIntervalChange }) {
+function ScanSettingsFields({
+  idPrefix,
+  duration,
+  interval,
+  forward,
+  disabled,
+  onDurationChange,
+  onIntervalChange,
+  onForwardChange,
+}) {
   return (
     <div className="autonomy-scan-settings autonomy-modal-actions-span">
       <span className="card-kicker">Busca da tag</span>
       <div className="autonomy-scan-settings-grid">
         <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-duration`}>
-          <span className="autonomy-tag-field-label">Tempo máximo do giro 360° (s)</span>
+          <span className="autonomy-tag-field-label">Duração de cada passo (s)</span>
           <input
             id={`${idPrefix}-scan-duration`}
             className="field-input"
             type="number"
             min={SCAN_DURATION_LIMITS.min}
             max={SCAN_DURATION_LIMITS.max}
-            step="0.1"
+            step="0.05"
             inputMode="decimal"
-            placeholder="8"
+            placeholder="0.6"
             value={duration}
             disabled={disabled}
             onChange={(event) => onDurationChange(event.target.value)}
           />
         </label>
         <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-interval`}>
-          <span className="autonomy-tag-field-label">Avanço entre giros (s)</span>
+          <span className="autonomy-tag-field-label">Pausa entre passos (s)</span>
           <input
             id={`${idPrefix}-scan-interval`}
             className="field-input"
@@ -90,10 +100,26 @@ function ScanSettingsFields({ idPrefix, duration, interval, disabled, onDuration
             max={SCAN_INTERVAL_LIMITS.max}
             step="0.05"
             inputMode="decimal"
-            placeholder="0.6"
+            placeholder="0.45"
             value={interval}
             disabled={disabled}
             onChange={(event) => onIntervalChange(event.target.value)}
+          />
+        </label>
+        <label className="autonomy-tag-field autonomy-scan-settings-forward" htmlFor={`${idPrefix}-scan-forward`}>
+          <span className="autonomy-tag-field-label">Avanço entre giros 360° (s)</span>
+          <input
+            id={`${idPrefix}-scan-forward`}
+            className="field-input"
+            type="number"
+            min={SCAN_FORWARD_LIMITS.min}
+            max={SCAN_FORWARD_LIMITS.max}
+            step="0.05"
+            inputMode="decimal"
+            placeholder="0.6"
+            value={forward}
+            disabled={disabled}
+            onChange={(event) => onForwardChange(event.target.value)}
           />
         </label>
       </div>
@@ -113,12 +139,14 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
     cycleStep,
     scanRotateDurationS,
     scanRotateIntervalS,
+    scanForwardPulseS,
     alert,
   } = autonomy;
   const [palletizeTagId, setPalletizeTagId] = useState("");
   const [depalletizeTagId, setDepalletizeTagId] = useState("");
-  const [scanDuration, setScanDuration] = useState("8");
-  const [scanInterval, setScanInterval] = useState("0.6");
+  const [scanDuration, setScanDuration] = useState("0.6");
+  const [scanInterval, setScanInterval] = useState("0.45");
+  const [scanForward, setScanForward] = useState("0.6");
 
   const showStart = fsmState === "IDLE";
   const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
@@ -130,7 +158,8 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
     }
     setScanDuration(String(scanRotateDurationS));
     setScanInterval(String(scanRotateIntervalS));
-  }, [enabled, showStart, showPalletizeDone, scanRotateDurationS, scanRotateIntervalS]);
+    setScanForward(String(scanForwardPulseS));
+  }, [enabled, showStart, showPalletizeDone, scanRotateDurationS, scanRotateIntervalS, scanForwardPulseS]);
 
   if (!enabled) {
     return null;
@@ -141,10 +170,13 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
   const parsedDepalletizeTagId = parseTagId(depalletizeTagId);
   const parsedScanDuration = parseScanSetting(scanDuration, SCAN_DURATION_LIMITS);
   const parsedScanInterval = parseScanSetting(scanInterval, SCAN_INTERVAL_LIMITS);
-  const scanSettingsValid = parsedScanDuration != null && parsedScanInterval != null;
+  const parsedScanForward = parseScanSetting(scanForward, SCAN_FORWARD_LIMITS);
+  const scanSettingsValid =
+    parsedScanDuration != null && parsedScanInterval != null && parsedScanForward != null;
   const scanOptions = {
     scanRotateDurationS: parsedScanDuration,
     scanRotateIntervalS: parsedScanInterval,
+    scanForwardPulseS: parsedScanForward,
   };
 
   return (
@@ -239,9 +271,11 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
                 idPrefix="palletize"
                 duration={scanDuration}
                 interval={scanInterval}
+                forward={scanForward}
                 disabled={disabled}
                 onDurationChange={setScanDuration}
                 onIntervalChange={setScanInterval}
+                onForwardChange={setScanForward}
               />
               <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="palletize-tag-id">
                 <span className="autonomy-tag-field-label">ID da AprilTag para paletização</span>
@@ -277,9 +311,11 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
                 idPrefix="depalletize"
                 duration={scanDuration}
                 interval={scanInterval}
+                forward={scanForward}
                 disabled={disabled}
                 onDurationChange={setScanDuration}
                 onIntervalChange={setScanInterval}
+                onForwardChange={setScanForward}
               />
               <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="depalletize-tag-id">
                 <span className="autonomy-tag-field-label">ID da AprilTag para despaletização</span>

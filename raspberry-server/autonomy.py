@@ -81,13 +81,20 @@ CYCLE_STEP_TOTAL = 8
 
 NAV_LOST_TAG_TICKS_DEFAULT = 45
 
-SCAN_FULL_ROTATION_MIN_S = 1.0
-SCAN_FULL_ROTATION_MAX_S = 30.0
+SCAN_PULSE_MIN_S = 0.1
+SCAN_PULSE_MAX_S = 3.0
+SCAN_PULSE_PAUSE_MIN_S = 0.0
+SCAN_PULSE_PAUSE_MAX_S = 5.0
 SCAN_FORWARD_PULSE_MIN_S = 0.1
 SCAN_FORWARD_PULSE_MAX_S = 5.0
+SCAN_SWEEP_TIMEOUT_MIN_S = 5.0
+SCAN_SWEEP_TIMEOUT_MAX_S = 120.0
 SCAN_SETTLE_S = 0.2
 SCAN_ROTATION_TARGET_DEG = 360.0
 SCAN_ROTATION_TOLERANCE_DEG = 3.0
+
+SCAN_ROTATE_SUBPHASE_WAIT = "wait"
+SCAN_ROTATE_SUBPHASE_TURN = "turn"
 
 SCAN_PHASE_ROTATE = "rotate"
 SCAN_PHASE_SETTLE_AFTER_ROTATE = "settle_after_rotate"
@@ -133,14 +140,10 @@ class AutonomyController:
         self.nav_forward_wait_s = _env_float("AUTONOMY_NAV_FORWARD_WAIT_S", 0.3)
         self.nav_lost_tag_ticks = _env_int("AUTONOMY_NAV_LOST_TAG_TICKS", NAV_LOST_TAG_TICKS_DEFAULT)
         self.scan_timeout_s = _env_float("AUTONOMY_SCAN_TIMEOUT_S", 60.0)
-        self.scan_full_rotation_s = _env_float(
-            "AUTONOMY_SCAN_FULL_ROTATION_S",
-            _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 8.0),
-        )
-        self.scan_forward_pulse_s = _env_float(
-            "AUTONOMY_SCAN_FORWARD_PULSE_S",
-            _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.6),
-        )
+        self.scan_rotate_pulse_s = _env_float("AUTONOMY_SCAN_ROTATE_DURATION_S", 0.6)
+        self.scan_rotate_interval_s = _env_float("AUTONOMY_SCAN_ROTATE_INTERVAL_S", 0.45)
+        self.scan_forward_pulse_s = _env_float("AUTONOMY_SCAN_FORWARD_PULSE_S", 0.6)
+        self.scan_sweep_timeout_s = _env_float("AUTONOMY_SCAN_FULL_ROTATION_S", 30.0)
         self.loop_hz = _env_int("AUTONOMY_LOOP_HZ", 10)
         self._fsm_state = FSM_OFF
         self._first_tag_id: int | None = None
@@ -155,6 +158,8 @@ class AutonomyController:
         self._scan_rotation_last_deg: float | None = None
         self._scan_rotation_accumulated_deg = 0.0
         self._scan_rotation_started_at: float | None = None
+        self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
+        self._scan_rotate_subphase_at = 0.0
         self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
         self._align_rotate_phase_at = 0.0
         self._align_pulse_end_at = 0.0
@@ -212,8 +217,9 @@ class AutonomyController:
             "manualControlAllowed": self.manual_control_allowed(),
             "cycleStep": CYCLE_STEP_BY_STATE.get(self._fsm_state, 0),
             "cycleStepTotal": CYCLE_STEP_TOTAL,
-            "scanRotateDurationS": self.scan_full_rotation_s,
-            "scanRotateIntervalS": self.scan_forward_pulse_s,
+            "scanRotateDurationS": self.scan_rotate_pulse_s,
+            "scanRotateIntervalS": self.scan_rotate_interval_s,
+            "scanForwardPulseS": self.scan_forward_pulse_s,
             "alert": self._alert,
         }
 
@@ -236,15 +242,26 @@ class AutonomyController:
         tag_id: int | None = None,
         scan_rotate_duration_s: float | None = None,
         scan_rotate_interval_s: float | None = None,
+        scan_forward_pulse_s: float | None = None,
     ) -> tuple[bool, str]:
         if action == "start_autonomous_mode":
             return await self._start_autonomous_mode()
         if action == "stop_autonomous_mode":
             return await self._stop_autonomous_mode()
         if action == "start_autonomous_cycle":
-            return await self._start_cycle(tag_id, scan_rotate_duration_s, scan_rotate_interval_s)
+            return await self._start_cycle(
+                tag_id,
+                scan_rotate_duration_s,
+                scan_rotate_interval_s,
+                scan_forward_pulse_s,
+            )
         if action == "confirm_palletize_done":
-            return await self._confirm_palletize(tag_id, scan_rotate_duration_s, scan_rotate_interval_s)
+            return await self._confirm_palletize(
+                tag_id,
+                scan_rotate_duration_s,
+                scan_rotate_interval_s,
+                scan_forward_pulse_s,
+            )
         if action == "confirm_depalletize_done":
             return await self._confirm_depalletize()
         return False, f"Ação de autonomia desconhecida: {action}"
@@ -286,6 +303,7 @@ class AutonomyController:
         tag_id: int | None,
         scan_rotate_duration_s: float | None,
         scan_rotate_interval_s: float | None,
+        scan_forward_pulse_s: float | None,
     ) -> tuple[bool, str]:
         if self._fsm_state != FSM_IDLE:
             return False, f"Ciclo só pode iniciar em IDLE (atual: {self._fsm_state})."
@@ -293,7 +311,11 @@ class AutonomyController:
             return False, "Informe o ID da AprilTag para paletização."
         if tag_id < 0:
             return False, "ID da AprilTag inválido."
-        ok, detail = self._apply_scan_config(scan_rotate_duration_s, scan_rotate_interval_s)
+        ok, detail = self._apply_scan_config(
+            scan_rotate_duration_s,
+            scan_rotate_interval_s,
+            scan_forward_pulse_s,
+        )
         if not ok:
             return False, detail
         self._reset_cycle()
@@ -312,6 +334,7 @@ class AutonomyController:
         tag_id: int | None,
         scan_rotate_duration_s: float | None,
         scan_rotate_interval_s: float | None,
+        scan_forward_pulse_s: float | None,
     ) -> tuple[bool, str]:
         if self._fsm_state != FSM_MANUAL_PALLETIZE:
             return False, f"Confirmação inválida no estado {self._fsm_state}."
@@ -319,7 +342,11 @@ class AutonomyController:
             return False, "Informe o ID da AprilTag para despaletização."
         if tag_id < 0:
             return False, "ID da AprilTag inválido."
-        ok, detail = self._apply_scan_config(scan_rotate_duration_s, scan_rotate_interval_s)
+        ok, detail = self._apply_scan_config(
+            scan_rotate_duration_s,
+            scan_rotate_interval_s,
+            scan_forward_pulse_s,
+        )
         if not ok:
             return False, detail
         self._target_tag_id = tag_id
@@ -363,6 +390,16 @@ class AutonomyController:
         self._scan_rotation_last_deg = None
         self._scan_rotation_accumulated_deg = 0.0
         self._scan_rotation_started_at = None
+        self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
+        self._scan_rotate_subphase_at = time.monotonic()
+
+    def _prepare_next_scan_sweep(self) -> None:
+        self._scan_rotation_reference_deg = None
+        self._scan_rotation_last_deg = None
+        self._scan_rotation_accumulated_deg = 0.0
+        self._scan_rotation_started_at = None
+        self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
+        self._scan_rotate_subphase_at = time.monotonic()
 
     def _reset_align_rotation(self) -> None:
         self._align_rotate_phase = ALIGN_ROTATE_PHASE_WAIT
@@ -378,23 +415,32 @@ class AutonomyController:
         self,
         scan_rotate_duration_s: float | None,
         scan_rotate_interval_s: float | None,
+        scan_forward_pulse_s: float | None,
     ) -> tuple[bool, str]:
         if scan_rotate_duration_s is not None:
-            if not SCAN_FULL_ROTATION_MIN_S <= scan_rotate_duration_s <= SCAN_FULL_ROTATION_MAX_S:
+            if not SCAN_PULSE_MIN_S <= scan_rotate_duration_s <= SCAN_PULSE_MAX_S:
                 return (
                     False,
-                    f"Duração do giro 360° deve estar entre {SCAN_FULL_ROTATION_MIN_S:g} e "
-                    f"{SCAN_FULL_ROTATION_MAX_S:g} s.",
+                    f"Duração de cada passo deve estar entre {SCAN_PULSE_MIN_S:g} e "
+                    f"{SCAN_PULSE_MAX_S:g} s.",
                 )
-            self.scan_full_rotation_s = scan_rotate_duration_s
+            self.scan_rotate_pulse_s = scan_rotate_duration_s
         if scan_rotate_interval_s is not None:
-            if not SCAN_FORWARD_PULSE_MIN_S <= scan_rotate_interval_s <= SCAN_FORWARD_PULSE_MAX_S:
+            if not SCAN_PULSE_PAUSE_MIN_S <= scan_rotate_interval_s <= SCAN_PULSE_PAUSE_MAX_S:
+                return (
+                    False,
+                    f"Pausa entre passos deve estar entre {SCAN_PULSE_PAUSE_MIN_S:g} e "
+                    f"{SCAN_PULSE_PAUSE_MAX_S:g} s.",
+                )
+            self.scan_rotate_interval_s = scan_rotate_interval_s
+        if scan_forward_pulse_s is not None:
+            if not SCAN_FORWARD_PULSE_MIN_S <= scan_forward_pulse_s <= SCAN_FORWARD_PULSE_MAX_S:
                 return (
                     False,
                     f"Avanço entre giros deve estar entre {SCAN_FORWARD_PULSE_MIN_S:g} e "
                     f"{SCAN_FORWARD_PULSE_MAX_S:g} s.",
                 )
-            self.scan_forward_pulse_s = scan_rotate_interval_s
+            self.scan_forward_pulse_s = scan_forward_pulse_s
         return True, ""
 
     async def _ensure_stop(self) -> None:
@@ -462,27 +508,32 @@ class AutonomyController:
     def _heading_tracking_available(self) -> bool:
         return bridge.is_heading_available()
 
-    def _begin_scan_rotation(self) -> None:
+    def _begin_scan_sweep(self) -> None:
         now = time.monotonic()
         heading = self._current_heading_deg()
         self._scan_rotation_started_at = now
-        self._scan_action_end_at = now + self.scan_full_rotation_s
-        if heading is not None:
-            self._scan_rotation_reference_deg = heading
-            self._scan_rotation_last_deg = heading
-            self._scan_rotation_accumulated_deg = 0.0
-        else:
-            self._scan_rotation_reference_deg = None
-            self._scan_rotation_last_deg = None
-            self._scan_rotation_accumulated_deg = 0.0
+        self._scan_rotation_reference_deg = heading
+        self._scan_rotation_last_deg = heading
+        self._scan_rotation_accumulated_deg = 0.0
+        self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
+        self._scan_rotate_subphase_at = now
 
-    def _update_scan_rotation_progress(self) -> bool:
+    def _update_scan_rotation_progress(self) -> None:
         heading = self._current_heading_deg()
-        if heading is None or self._scan_rotation_last_deg is None:
-            return False
+        if heading is None:
+            return
+        if self._scan_rotation_last_deg is None:
+            self._scan_rotation_last_deg = heading
+            if self._scan_rotation_reference_deg is None:
+                self._scan_rotation_reference_deg = heading
+            return
         delta = self._shortest_delta_deg(self._scan_rotation_last_deg, heading)
         self._scan_rotation_accumulated_deg += abs(delta)
         self._scan_rotation_last_deg = heading
+
+    def _is_scan_sweep_complete(self) -> bool:
+        if not self._heading_tracking_available() or self._scan_rotation_last_deg is None:
+            return False
         return self._scan_rotation_accumulated_deg >= (
             SCAN_ROTATION_TARGET_DEG - SCAN_ROTATION_TOLERANCE_DEG
         )
@@ -490,7 +541,7 @@ class AutonomyController:
     def _scan_rotation_timed_out(self, now: float) -> bool:
         if self._scan_rotation_started_at is None:
             return False
-        return now - self._scan_rotation_started_at >= self.scan_full_rotation_s
+        return now - self._scan_rotation_started_at >= self.scan_sweep_timeout_s
 
     async def _finish_scan_rotation(self, now: float) -> None:
         await self._ensure_stop()
@@ -499,6 +550,7 @@ class AutonomyController:
         self._scan_rotation_reference_deg = None
         self._scan_rotation_last_deg = None
         self._scan_rotation_accumulated_deg = 0.0
+        self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
         self._scan_phase = SCAN_PHASE_SETTLE_AFTER_ROTATE
         self._scan_phase_at = now
 
@@ -507,21 +559,40 @@ class AutonomyController:
 
         if self._scan_phase == SCAN_PHASE_ROTATE:
             if self._scan_rotation_started_at is None:
-                await self._send_motor("turn_left")
-                self._begin_scan_rotation()
-                return
+                self._begin_scan_sweep()
 
-            if self._heading_tracking_available():
-                if self._update_scan_rotation_progress():
+            if self._scan_rotate_subphase == SCAN_ROTATE_SUBPHASE_WAIT:
+                await self._ensure_stop()
+                if now - self._scan_rotate_subphase_at < self.scan_rotate_interval_s:
+                    return
+                if self._is_scan_sweep_complete():
                     await self._finish_scan_rotation(now)
                     return
-            elif self._scan_rotation_timed_out(now):
-                await self._finish_scan_rotation(now)
+                if self._scan_rotation_timed_out(now):
+                    self._alert = "Giro 360° excedeu o tempo máximo — verifique odometria/IMU."
+                    await self._finish_scan_rotation(now)
+                    return
+                await self._send_motor("turn_left")
+                self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_TURN
+                self._scan_rotate_subphase_at = now
                 return
 
-            if self._scan_rotation_timed_out(now):
-                self._alert = "Giro 360° excedeu o tempo máximo — verifique odometria/IMU."
-                await self._finish_scan_rotation(now)
+            if self._scan_rotate_subphase == SCAN_ROTATE_SUBPHASE_TURN:
+                if now - self._scan_rotate_subphase_at < self.scan_rotate_pulse_s:
+                    return
+                await self._ensure_stop()
+                self._update_scan_rotation_progress()
+                if self._is_scan_sweep_complete():
+                    await self._finish_scan_rotation(now)
+                    return
+                if self._scan_rotation_timed_out(now):
+                    self._alert = "Giro 360° excedeu o tempo máximo — verifique odometria/IMU."
+                    await self._finish_scan_rotation(now)
+                    return
+                self._scan_rotate_subphase = SCAN_ROTATE_SUBPHASE_WAIT
+                self._scan_rotate_subphase_at = now
+                return
+
             return
 
         if self._scan_phase == SCAN_PHASE_SETTLE_AFTER_ROTATE:
@@ -551,6 +622,7 @@ class AutonomyController:
                 return
             self._scan_phase = SCAN_PHASE_ROTATE
             self._scan_phase_at = now
+            self._prepare_next_scan_sweep()
 
     def _find_tag_by_id(self, tags: list[dict], tag_id: int | None) -> dict | None:
         if tag_id is None:

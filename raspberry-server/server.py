@@ -144,12 +144,20 @@ async def handle_client(websocket: ServerConnection) -> None:
                 except (TypeError, ValueError):
                     scan_rotate_interval_s = None
 
+            scan_forward_pulse_s = message.get("scanForwardPulseS")
+            if scan_forward_pulse_s is not None:
+                try:
+                    scan_forward_pulse_s = float(scan_forward_pulse_s)
+                except (TypeError, ValueError):
+                    scan_forward_pulse_s = None
+
             if action in AUTONOMY_ACTIONS:
                 ok, detail = await autonomy_controller.handle_action(
                     action,
                     tag_id=tag_id,
                     scan_rotate_duration_s=scan_rotate_duration_s,
                     scan_rotate_interval_s=scan_rotate_interval_s,
+                    scan_forward_pulse_s=scan_forward_pulse_s,
                 )
                 if not ok:
                     await websocket.send(

@@ -2061,6 +2061,10 @@ input {
   gap: 8px;
 }
 
+.autonomy-scan-settings-forward {
+  grid-column: 1 / -1;
+}
+
 .autonomy-modal-actions:has(:only-child) {
   grid-template-columns: 1fr;
 }

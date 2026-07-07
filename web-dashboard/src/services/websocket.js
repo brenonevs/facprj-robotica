@@ -41,5 +41,8 @@ export function createCommandMessage(action, options = {}) {
   if (options.scanRotateIntervalS != null && options.scanRotateIntervalS !== "") {
     message.scanRotateIntervalS = Number(options.scanRotateIntervalS);
   }
+  if (options.scanForwardPulseS != null && options.scanForwardPulseS !== "") {
+    message.scanForwardPulseS = Number(options.scanForwardPulseS);
+  }
   return message;
 }
