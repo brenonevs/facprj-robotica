@@ -129,8 +129,27 @@ async def handle_client(websocket: ServerConnection) -> None:
                 except (TypeError, ValueError):
                     tag_id = None
 
+            scan_rotate_duration_s = message.get("scanRotateDurationS")
+            if scan_rotate_duration_s is not None:
+                try:
+                    scan_rotate_duration_s = float(scan_rotate_duration_s)
+                except (TypeError, ValueError):
+                    scan_rotate_duration_s = None
+
+            scan_rotate_interval_s = message.get("scanRotateIntervalS")
+            if scan_rotate_interval_s is not None:
+                try:
+                    scan_rotate_interval_s = float(scan_rotate_interval_s)
+                except (TypeError, ValueError):
+                    scan_rotate_interval_s = None
+
             if action in AUTONOMY_ACTIONS:
-                ok, detail = await autonomy_controller.handle_action(action, tag_id=tag_id)
+                ok, detail = await autonomy_controller.handle_action(
+                    action,
+                    tag_id=tag_id,
+                    scan_rotate_duration_s=scan_rotate_duration_s,
+                    scan_rotate_interval_s=scan_rotate_interval_s,
+                )
                 if not ok:
                     await websocket.send(
                         json_message(

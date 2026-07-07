@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Bot,
   CheckCircle2,
@@ -44,22 +44,108 @@ function parseTagId(value) {
   return parsed;
 }
 
+function parseScanSetting(value, { min, max }) {
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number.parseFloat(trimmed);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    return null;
+  }
+  return parsed;
+}
+
+const SCAN_DURATION_LIMITS = { min: 0.1, max: 3 };
+const SCAN_INTERVAL_LIMITS = { min: 0, max: 5 };
+
+function ScanSettingsFields({ idPrefix, duration, interval, disabled, onDurationChange, onIntervalChange }) {
+  return (
+    <div className="autonomy-scan-settings autonomy-modal-actions-span">
+      <span className="card-kicker">Busca da tag</span>
+      <div className="autonomy-scan-settings-grid">
+        <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-duration`}>
+          <span className="autonomy-tag-field-label">Duração de cada giro (s)</span>
+          <input
+            id={`${idPrefix}-scan-duration`}
+            className="field-input"
+            type="number"
+            min={SCAN_DURATION_LIMITS.min}
+            max={SCAN_DURATION_LIMITS.max}
+            step="0.05"
+            inputMode="decimal"
+            placeholder="0.6"
+            value={duration}
+            disabled={disabled}
+            onChange={(event) => onDurationChange(event.target.value)}
+          />
+        </label>
+        <label className="autonomy-tag-field" htmlFor={`${idPrefix}-scan-interval`}>
+          <span className="autonomy-tag-field-label">Pausa entre giros (s)</span>
+          <input
+            id={`${idPrefix}-scan-interval`}
+            className="field-input"
+            type="number"
+            min={SCAN_INTERVAL_LIMITS.min}
+            max={SCAN_INTERVAL_LIMITS.max}
+            step="0.05"
+            inputMode="decimal"
+            placeholder="0.45"
+            value={interval}
+            disabled={disabled}
+            onChange={(event) => onIntervalChange(event.target.value)}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connected }) {
-  const { enabled, fsmState, targetTagId, firstTagId, targetDistanceM, currentDistanceM, manualControlAllowed, cycleStep, alert } =
-    autonomy;
+  const {
+    enabled,
+    fsmState,
+    targetTagId,
+    firstTagId,
+    targetDistanceM,
+    currentDistanceM,
+    manualControlAllowed,
+    cycleStep,
+    scanRotateDurationS,
+    scanRotateIntervalS,
+    alert,
+  } = autonomy;
   const [palletizeTagId, setPalletizeTagId] = useState("");
   const [depalletizeTagId, setDepalletizeTagId] = useState("");
+  const [scanDuration, setScanDuration] = useState("0.6");
+  const [scanInterval, setScanInterval] = useState("0.45");
+
+  const showStart = fsmState === "IDLE";
+  const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
+  const showDepalletizeDone = fsmState === "MANUAL_DEPALLETIZE";
+
+  useEffect(() => {
+    if (!enabled || (!showStart && !showPalletizeDone)) {
+      return;
+    }
+    setScanDuration(String(scanRotateDurationS));
+    setScanInterval(String(scanRotateIntervalS));
+  }, [enabled, showStart, showPalletizeDone, scanRotateDurationS, scanRotateIntervalS]);
 
   if (!enabled) {
     return null;
   }
 
   const stateLabel = FSM_STATE_LABELS[fsmState] ?? fsmState;
-  const showStart = fsmState === "IDLE";
-  const showPalletizeDone = fsmState === "MANUAL_PALLETIZE";
-  const showDepalletizeDone = fsmState === "MANUAL_DEPALLETIZE";
   const parsedPalletizeTagId = parseTagId(palletizeTagId);
   const parsedDepalletizeTagId = parseTagId(depalletizeTagId);
+  const parsedScanDuration = parseScanSetting(scanDuration, SCAN_DURATION_LIMITS);
+  const parsedScanInterval = parseScanSetting(scanInterval, SCAN_INTERVAL_LIMITS);
+  const scanSettingsValid = parsedScanDuration != null && parsedScanInterval != null;
+  const scanOptions = {
+    scanRotateDurationS: parsedScanDuration,
+    scanRotateIntervalS: parsedScanInterval,
+  };
 
   return (
     <div className="autonomy-modal-backdrop" role="presentation">
@@ -147,6 +233,14 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
         <div className="autonomy-modal-actions">
           {showStart ? (
             <>
+              <ScanSettingsFields
+                idPrefix="palletize"
+                duration={scanDuration}
+                interval={scanInterval}
+                disabled={disabled}
+                onDurationChange={setScanDuration}
+                onIntervalChange={setScanInterval}
+              />
               <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="palletize-tag-id">
                 <span className="autonomy-tag-field-label">ID da AprilTag para paletização</span>
                 <input
@@ -165,8 +259,10 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
               <button
                 className="btn btn-autonomous btn-full autonomy-modal-actions-span"
                 type="button"
-                disabled={disabled || parsedPalletizeTagId == null}
-                onClick={() => onCommand("start_autonomous_cycle", { tagId: parsedPalletizeTagId })}
+                disabled={disabled || parsedPalletizeTagId == null || !scanSettingsValid}
+                onClick={() =>
+                  onCommand("start_autonomous_cycle", { tagId: parsedPalletizeTagId, ...scanOptions })
+                }
               >
                 <Play size={18} />
                 Iniciar
@@ -175,6 +271,14 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
           ) : null}
           {showPalletizeDone ? (
             <>
+              <ScanSettingsFields
+                idPrefix="depalletize"
+                duration={scanDuration}
+                interval={scanInterval}
+                disabled={disabled}
+                onDurationChange={setScanDuration}
+                onIntervalChange={setScanInterval}
+              />
               <label className="autonomy-tag-field autonomy-modal-actions-span" htmlFor="depalletize-tag-id">
                 <span className="autonomy-tag-field-label">ID da AprilTag para despaletização</span>
                 <input
@@ -193,8 +297,10 @@ export function AutonomousModeModal({ autonomy, disabled, onCommand, ip, connect
               <button
                 className="btn btn-autonomous btn-full autonomy-modal-actions-span"
                 type="button"
-                disabled={disabled || parsedDepalletizeTagId == null}
-                onClick={() => onCommand("confirm_palletize_done", { tagId: parsedDepalletizeTagId })}
+                disabled={disabled || parsedDepalletizeTagId == null || !scanSettingsValid}
+                onClick={() =>
+                  onCommand("confirm_palletize_done", { tagId: parsedDepalletizeTagId, ...scanOptions })
+                }
               >
                 <CheckCircle2 size={18} />
                 Paletização concluída

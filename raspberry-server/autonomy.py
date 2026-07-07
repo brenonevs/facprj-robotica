@@ -81,6 +81,11 @@ CYCLE_STEP_TOTAL = 8
 
 NAV_LOST_TAG_TICKS_DEFAULT = 45
 
+SCAN_ROTATE_DURATION_MIN_S = 0.1
+SCAN_ROTATE_DURATION_MAX_S = 3.0
+SCAN_ROTATE_INTERVAL_MIN_S = 0.0
+SCAN_ROTATE_INTERVAL_MAX_S = 5.0
+
 SCAN_ROTATE_PHASE_WAIT = "wait"
 SCAN_ROTATE_PHASE_TURN = "turn"
 
@@ -191,6 +196,8 @@ class AutonomyController:
             "manualControlAllowed": self.manual_control_allowed(),
             "cycleStep": CYCLE_STEP_BY_STATE.get(self._fsm_state, 0),
             "cycleStepTotal": CYCLE_STEP_TOTAL,
+            "scanRotateDurationS": self.scan_rotate_duration_s,
+            "scanRotateIntervalS": self.scan_rotate_interval_s,
             "alert": self._alert,
         }
 
@@ -207,15 +214,21 @@ class AutonomyController:
         self._last_payload_key = key
         await self._broadcast_fn(payload)
 
-    async def handle_action(self, action: str, tag_id: int | None = None) -> tuple[bool, str]:
+    async def handle_action(
+        self,
+        action: str,
+        tag_id: int | None = None,
+        scan_rotate_duration_s: float | None = None,
+        scan_rotate_interval_s: float | None = None,
+    ) -> tuple[bool, str]:
         if action == "start_autonomous_mode":
             return await self._start_autonomous_mode()
         if action == "stop_autonomous_mode":
             return await self._stop_autonomous_mode()
         if action == "start_autonomous_cycle":
-            return await self._start_cycle(tag_id)
+            return await self._start_cycle(tag_id, scan_rotate_duration_s, scan_rotate_interval_s)
         if action == "confirm_palletize_done":
-            return await self._confirm_palletize(tag_id)
+            return await self._confirm_palletize(tag_id, scan_rotate_duration_s, scan_rotate_interval_s)
         if action == "confirm_depalletize_done":
             return await self._confirm_depalletize()
         return False, f"Ação de autonomia desconhecida: {action}"
@@ -252,13 +265,21 @@ class AutonomyController:
         await self.broadcast_state(force=True)
         return True, "Modo autônomo desativado."
 
-    async def _start_cycle(self, tag_id: int | None) -> tuple[bool, str]:
+    async def _start_cycle(
+        self,
+        tag_id: int | None,
+        scan_rotate_duration_s: float | None,
+        scan_rotate_interval_s: float | None,
+    ) -> tuple[bool, str]:
         if self._fsm_state != FSM_IDLE:
             return False, f"Ciclo só pode iniciar em IDLE (atual: {self._fsm_state})."
         if tag_id is None:
             return False, "Informe o ID da AprilTag para paletização."
         if tag_id < 0:
             return False, "ID da AprilTag inválido."
+        ok, detail = self._apply_scan_config(scan_rotate_duration_s, scan_rotate_interval_s)
+        if not ok:
+            return False, detail
         self._reset_cycle()
         self._first_tag_id = tag_id
         self._target_tag_id = tag_id
@@ -270,13 +291,21 @@ class AutonomyController:
         await self.broadcast_state(force=True)
         return True, f"Ciclo autônomo iniciado — buscando AprilTag #{tag_id}."
 
-    async def _confirm_palletize(self, tag_id: int | None) -> tuple[bool, str]:
+    async def _confirm_palletize(
+        self,
+        tag_id: int | None,
+        scan_rotate_duration_s: float | None,
+        scan_rotate_interval_s: float | None,
+    ) -> tuple[bool, str]:
         if self._fsm_state != FSM_MANUAL_PALLETIZE:
             return False, f"Confirmação inválida no estado {self._fsm_state}."
         if tag_id is None:
             return False, "Informe o ID da AprilTag para despaletização."
         if tag_id < 0:
             return False, "ID da AprilTag inválido."
+        ok, detail = self._apply_scan_config(scan_rotate_duration_s, scan_rotate_interval_s)
+        if not ok:
+            return False, detail
         self._target_tag_id = tag_id
         self._current_distance_m = None
         self._fsm_state = FSM_SCAN_TAG_2
@@ -323,6 +352,29 @@ class AutonomyController:
         self._nav_phase = NAV_PHASE_FORWARD_WAIT
         self._nav_phase_at = time.monotonic()
         self._nav_forward_pulse_end_at = 0.0
+
+    def _apply_scan_config(
+        self,
+        scan_rotate_duration_s: float | None,
+        scan_rotate_interval_s: float | None,
+    ) -> tuple[bool, str]:
+        if scan_rotate_duration_s is not None:
+            if not SCAN_ROTATE_DURATION_MIN_S <= scan_rotate_duration_s <= SCAN_ROTATE_DURATION_MAX_S:
+                return (
+                    False,
+                    f"Duração do giro deve estar entre {SCAN_ROTATE_DURATION_MIN_S:g} e "
+                    f"{SCAN_ROTATE_DURATION_MAX_S:g} s.",
+                )
+            self.scan_rotate_duration_s = scan_rotate_duration_s
+        if scan_rotate_interval_s is not None:
+            if not SCAN_ROTATE_INTERVAL_MIN_S <= scan_rotate_interval_s <= SCAN_ROTATE_INTERVAL_MAX_S:
+                return (
+                    False,
+                    f"Pausa entre giros deve estar entre {SCAN_ROTATE_INTERVAL_MIN_S:g} e "
+                    f"{SCAN_ROTATE_INTERVAL_MAX_S:g} s.",
+                )
+            self.scan_rotate_interval_s = scan_rotate_interval_s
+        return True, ""
 
     async def _ensure_stop(self) -> None:
         if self._last_motor_action == "stop":

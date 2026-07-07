@@ -35,5 +35,11 @@ export function createCommandMessage(action, options = {}) {
   if (options.tagId != null && options.tagId !== "") {
     message.tagId = Number(options.tagId);
   }
+  if (options.scanRotateDurationS != null && options.scanRotateDurationS !== "") {
+    message.scanRotateDurationS = Number(options.scanRotateDurationS);
+  }
+  if (options.scanRotateIntervalS != null && options.scanRotateIntervalS !== "") {
+    message.scanRotateIntervalS = Number(options.scanRotateIntervalS);
+  }
   return message;
 }
